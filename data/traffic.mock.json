@@ -1,0 +1,46 @@
+{
+  "version": "1",
+  "meta": {
+    "updatedAt": "2026-05-08T12:00:00Z",
+    "region": "Santander",
+    "source": "mock"
+  },
+  "items": [
+    {
+      "id": "tr-af-victor-sanchez",
+      "severity": "heavy",
+      "coordinates": [
+        [-3.8165, 43.466],
+        [-3.812, 43.4638],
+        [-3.8075, 43.462]
+      ]
+    },
+    {
+      "id": "tr-ring-pechina",
+      "severity": "moderate",
+      "coordinates": [
+        [-3.824, 43.463],
+        [-3.818, 43.4605],
+        [-3.811, 43.4585]
+      ]
+    },
+    {
+      "id": "tr-bridge-puerto",
+      "severity": "low",
+      "coordinates": [
+        [-3.798, 43.461],
+        [-3.7945, 43.459],
+        [-3.791, 43.457]
+      ]
+    },
+    {
+      "id": "tr-los-castros",
+      "severity": "moderate",
+      "coordinates": [
+        [-3.827, 43.471],
+        [-3.821, 43.469],
+        [-3.814, 43.4675]
+      ]
+    }
+  ]
+}

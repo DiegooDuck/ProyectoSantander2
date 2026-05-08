@@ -1,0 +1,101 @@
+import type {
+  RouteCandidate,
+  ScoredRoute,
+  ScoringBreakdown,
+  UserProfile,
+} from "./types";
+import { PROFILE_WEIGHTS } from "./profiles";
+
+function minMaxNormalize(values: number[]): number[] {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values.map((v) => (v - min) / span);
+}
+
+/** Participación en km de modos activos respecto al total recorrido. */
+function activeMobilityShareKm(candidate: RouteCandidate): number {
+  const active = candidate.legs
+    .filter((l) => l.mode === "walking" || l.mode === "cycling")
+    .reduce((s, l) => s + l.distanceKm, 0);
+  const total = candidate.legs.reduce((s, l) => s + l.distanceKm, 0) || 1;
+  return active / total;
+}
+
+function totalDuration(candidate: RouteCandidate): number {
+  return candidate.legs.reduce((s, l) => s + l.durationMinutes, 0);
+}
+
+/** Coste de sostenibilidad: emisiones altas + baja movilidad activa. */
+function sustainabilityRaw(candidate: RouteCandidate): number {
+  const co2 = candidate.metrics.estimatedCo2Grams;
+  const passiveShare = 1 - activeMobilityShareKm(candidate);
+  return co2 * 0.55 + passiveShare * 400;
+}
+
+/** Coste de “calma”: baja seguridad percibida + alta exposición al tráfico. */
+function calmRaw(candidate: RouteCandidate): number {
+  const { safetyIndex, trafficExposureIndex } = candidate.metrics;
+  return (1 - safetyIndex) * 0.55 + trafficExposureIndex * 0.45;
+}
+
+export function scoreRoute(
+  candidate: RouteCandidate,
+  profile: UserProfile,
+  norms: {
+    duration: number;
+    sustainability: number;
+    calm: number;
+  },
+): ScoredRoute {
+  const w = PROFILE_WEIGHTS[profile];
+  const weightedTotal =
+    w.duration * norms.duration +
+    w.sustainability * norms.sustainability +
+    w.calm * norms.calm;
+
+  const breakdown: ScoringBreakdown = {
+    durationCost: norms.duration,
+    sustainabilityCost: norms.sustainability,
+    calmCost: norms.calm,
+    weightedTotal,
+  };
+
+  return { candidate, breakdown };
+}
+
+/** Calcula puntuaciones comparando candidatos entre sí (batch scoring). */
+export function scoreAllCandidates(
+  candidates: RouteCandidate[],
+  profile: UserProfile,
+): ScoredRoute[] {
+  if (candidates.length === 0) return [];
+
+  const durations = candidates.map(totalDuration);
+  const ecoRaw = candidates.map(sustainabilityRaw);
+  const calmR = candidates.map(calmRaw);
+
+  const nDur = minMaxNormalize(durations);
+  const nEco = minMaxNormalize(ecoRaw);
+  const nCalm = minMaxNormalize(calmR);
+
+  return candidates.map((c, i) =>
+    scoreRoute(c, profile, {
+      duration: nDur[i] ?? 0,
+      sustainability: nEco[i] ?? 0,
+      calm: nCalm[i] ?? 0,
+    }),
+  );
+}
+
+/** Menor `weightedTotal` gana. */
+export function selectBestRoute(
+  candidates: RouteCandidate[],
+  profile: UserProfile,
+): ScoredRoute | null {
+  const scored = scoreAllCandidates(candidates, profile);
+  if (scored.length === 0) return null;
+  return scored.reduce((best, cur) =>
+    cur.breakdown.weightedTotal < best.breakdown.weightedTotal ? cur : best,
+  );
+}

@@ -1,0 +1,50 @@
+{
+  "version": "1",
+  "meta": {
+    "updatedAt": "2026-05-08T12:00:00Z",
+    "region": "Santander",
+    "source": "mock"
+  },
+  "items": [
+    {
+      "id": "bike-plaza-italia",
+      "name": "Plaza Italia",
+      "lng": -3.811,
+      "lat": 43.4645,
+      "availableDocks": 8,
+      "availableBikes": 5
+    },
+    {
+      "id": "bike-gran-via",
+      "name": "Gran Vía",
+      "lng": -3.806,
+      "lat": 43.461,
+      "availableDocks": 12,
+      "availableBikes": 3
+    },
+    {
+      "id": "bike-centro-botin",
+      "name": "Centro Botín",
+      "lng": -3.799,
+      "lat": 43.466,
+      "availableDocks": 16,
+      "availableBikes": 11
+    },
+    {
+      "id": "bike-valdenoja",
+      "name": "Valdenoja",
+      "lng": -3.828,
+      "lat": 43.471,
+      "availableDocks": 10,
+      "availableBikes": 2
+    },
+    {
+      "id": "bike-vaguada",
+      "name": "La Albericia",
+      "lng": -3.817,
+      "lat": 43.457,
+      "availableDocks": 14,
+      "availableBikes": 7
+    }
+  ]
+}

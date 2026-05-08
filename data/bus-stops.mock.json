@@ -1,0 +1,52 @@
+{
+  "version": "1",
+  "meta": {
+    "updatedAt": "2026-05-08T12:00:00Z",
+    "region": "Santander",
+    "source": "mock"
+  },
+  "items": [
+    {
+      "id": "stop-jardin-pereda",
+      "name": "Jardines de Pereda",
+      "lng": -3.8092,
+      "lat": 43.465,
+      "lines": ["L1", "L7"]
+    },
+    {
+      "id": "stop-calcetas",
+      "name": "Las Callejeras · Cuatro Caminos",
+      "lng": -3.8158,
+      "lat": 43.4615,
+      "lines": ["L2"]
+    },
+    {
+      "id": "stop-pombo",
+      "name": "Plaza Pombo",
+      "lng": -3.8045,
+      "lat": 43.4639,
+      "lines": ["L3", "L13"]
+    },
+    {
+      "id": "stop-el-sardinero",
+      "name": "Sardinero Sur",
+      "lng": -3.793,
+      "lat": 43.472,
+      "lines": ["L11"]
+    },
+    {
+      "id": "stop-valdecilla",
+      "name": "Hospital Valdecilla",
+      "lng": -3.822,
+      "lat": 43.459,
+      "lines": ["L6"]
+    },
+    {
+      "id": "stop-cazo",
+      "name": "El Cazo",
+      "lng": -3.831,
+      "lat": 43.468,
+      "lines": ["L8"]
+    }
+  ]
+}
