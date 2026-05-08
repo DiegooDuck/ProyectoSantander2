@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "lucide-react": "^1.14.0",
     "mapbox-gl": "^3.23.1",
     "next": "16.2.6",
     "react": "19.2.4",

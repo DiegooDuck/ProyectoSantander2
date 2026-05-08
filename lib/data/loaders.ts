@@ -1,4 +1,5 @@
 import type { MapDataBundle } from "./types";
+import { loadSantanderBikeData } from "./santander-api";
 
 import routesMock from "../../data/routes.mock.json";
 import busStopsMock from "../../data/bus-stops.mock.json";
@@ -27,6 +28,29 @@ export async function loadMapDataBundleFromFiles(): Promise<MapDataBundle> {
 }
 
 /**
+ * Carga datos desde la API de Santander (GitHub) y mocks locales para otros datos.
+ */
+export async function loadMapDataBundleFromSantanderApi(): Promise<MapDataBundle> {
+  await sleep(MOCK_LATENCY_MS);
+  
+  try {
+    // Cargar datos de bicicletas desde la API de Santander
+    const bikeShare = await loadSantanderBikeData();
+    
+    return {
+      routes: routesMock as MapDataBundle["routes"],
+      busStops: busStopsMock as MapDataBundle["busStops"],
+      bikeShare,
+      traffic: trafficMock as MapDataBundle["traffic"],
+    };
+  } catch (error) {
+    console.error("Error loading Santander API data, falling back to mocks:", error);
+    // Fallback a datos locales si falla la API
+    return loadMapDataBundleFromFiles();
+  }
+}
+
+/**
  * Punto de extensión HTTP: mismo contrato que los mocks.
  * Implementar cuando el BFF exponga `/v1/map-data` o recursos separados.
  */
@@ -47,5 +71,12 @@ export async function resolveMapDataBundle(): Promise<MapDataBundle> {
   if (apiBase && apiBase.length > 0) {
     return loadMapDataBundleFromApi(apiBase);
   }
+  
+  // Usar API de Santander por defecto para datos en tiempo real
+  const useSantanderApi = process.env.NEXT_PUBLIC_USE_SANTANDER_API !== "false";
+  if (useSantanderApi) {
+    return loadMapDataBundleFromSantanderApi();
+  }
+  
   return loadMapDataBundleFromFiles();
 }

@@ -8,5 +8,12 @@ export {
 export {
   loadMapDataBundleFromFiles,
   loadMapDataBundleFromApi,
+  loadMapDataBundleFromSantanderApi,
   resolveMapDataBundle,
 } from "./loaders";
+export {
+  fetchSantanderBikeStations,
+  transformSantanderToAppFormat,
+  loadSantanderBikeData,
+  fetchSantanderBikeRoutes,
+} from "./santander-api";

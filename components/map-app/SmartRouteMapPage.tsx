@@ -14,12 +14,15 @@ import {
   scoreAllCandidates,
   selectBestRoute,
   type UserProfile,
+  type RouteCandidate,
+  type TransportMode,
 } from "@/lib/routing";
 import { CoreMap, type MapLayerVisibility } from "@/components/map-app/CoreMap";
 import { LayerToggleBar } from "@/components/map-app/LayerToggleBar";
 import { RouteOptionStrip } from "@/components/map-app/RouteOptionStrip";
 import { ThemeSwitcher } from "@/components/map-app/ThemeSwitcher";
 import { ProfileSelector } from "@/components/routing/ProfileSelector";
+import { DestinationInput, type Destination } from "@/components/routing/DestinationInput";
 import { ThemeProvider, useAppTheme } from "@/components/theme/ThemeProvider";
 
 function MapExperience() {
@@ -28,6 +31,9 @@ function MapExperience() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile>("PRISA");
   const [manualRouteId, setManualRouteId] = useState<string | null>(null);
+  const [destination, setDestination] = useState<Destination | null>(null);
+  const [generatedCandidates, setGeneratedCandidates] = useState<RouteCandidate[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [layers, setLayers] = useState<MapLayerVisibility>({
     buses: true,
     bikes: true,
@@ -53,7 +59,98 @@ function MapExperience() {
     setManualRouteId(null);
   }, [profile]);
 
-  const candidates = bundle?.routes.items ?? [];
+  const handleGenerateRoute = async () => {
+    if (!destination) return;
+    setIsGenerating(true);
+    try {
+      const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
+      if (!token) throw new Error("Falta el token de Mapbox");
+
+      const getUserLocation = (): Promise<{ lng: number; lat: number }> => {
+        return new Promise((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error("Geolocalización no soportada"));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude }),
+            (err) => reject(err),
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+          );
+        });
+      };
+
+      let originLng = -3.80998;
+      let originLat = 43.46231;
+
+      try {
+        const loc = await getUserLocation();
+        originLng = loc.lng;
+        originLat = loc.lat;
+      } catch (err) {
+        console.warn("No se pudo obtener la ubicación, usando origen por defecto", err);
+      }
+
+      const destLng = destination.coordinates[0];
+      const destLat = destination.coordinates[1];
+
+      const modes = [
+        { mapboxMode: "walking", ourMode: "walking" as TransportMode, label: "Ruta a pie" },
+        { mapboxMode: "cycling", ourMode: "cycling" as TransportMode, label: "Ruta en bicicleta" },
+        { mapboxMode: "driving", ourMode: "bus" as TransportMode, label: "Ruta rápida (estimación en coche/bus)" },
+      ];
+
+      const fetches = modes.map(async (m) => {
+        try {
+          const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/${m.mapboxMode}/${originLng},${originLat};${destLng},${destLat}?geometries=geojson&access_token=${token}`);
+          const data = await res.json();
+          if (data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            const candidate: RouteCandidate = {
+              id: `api-${m.ourMode}-${Date.now()}`,
+              label: m.label,
+              legs: [
+                {
+                  mode: m.ourMode,
+                  durationMinutes: Math.round(route.duration / 60),
+                  distanceKm: route.distance / 1000,
+                }
+              ],
+              metrics: {
+                estimatedCo2Grams: m.ourMode === "bus" ? route.distance * 0.12 : 0,
+                safetyIndex: m.ourMode === "walking" ? 0.9 : (m.ourMode === "cycling" ? 0.8 : 0.6),
+                trafficExposureIndex: m.ourMode === "bus" ? 0.8 : (m.ourMode === "cycling" ? 0.3 : 0.1),
+              },
+              geometry: route.geometry,
+            };
+            return candidate;
+          }
+        } catch (e) {
+          console.error(`Error fetching ${m.mapboxMode} route:`, e);
+        }
+        return null;
+      });
+
+      const results = await Promise.all(fetches);
+      const validCandidates = results.filter((c): c is RouteCandidate => c !== null);
+      
+      if (validCandidates.length > 0) {
+        setGeneratedCandidates(validCandidates);
+        setManualRouteId(null);
+      } else {
+        alert("No se pudo generar una ruta a este destino.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error al conectar con la API de rutas.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const candidates = generatedCandidates.length > 0 
+    ? generatedCandidates 
+    : (bundle?.routes.items ?? []);
 
   const ranked = useMemo(
     () => scoreAllCandidates(candidates, profile),
@@ -140,6 +237,21 @@ function MapExperience() {
 
               {bundle ? (
                 <>
+                  <DestinationInput
+                    currentDestination={destination}
+                    onDestinationSelect={(dest) => {
+                      setDestination(dest);
+                      setGeneratedCandidates([]); // Clear previous generated routes when destination changes
+                    }}
+                    onClear={() => {
+                      setDestination(null);
+                      setGeneratedCandidates([]); // Clear routes
+                    }}
+                    onConfirm={handleGenerateRoute}
+                    isConfirming={isGenerating}
+                    disabled={isGenerating}
+                  />
+
                   <RouteOptionStrip
                     ranked={ranked}
                     selectedId={selectedId}
