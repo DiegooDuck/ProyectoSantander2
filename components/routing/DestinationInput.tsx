@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Search, MapPin, X } from "lucide-react";
+import { Search, MapPin, X, Bus } from "lucide-react";
 
 export type Destination = {
   name: string;
@@ -16,6 +16,7 @@ export type DestinationInputProps = {
   placeholder?: string;
   disabled?: boolean;
   currentDestination?: Destination | null;
+  busStops?: Array<{ name: string; coordinates: [number, number] }>;
 };
 
 // Lugares populares en Santander para autocompletar
@@ -44,9 +45,10 @@ export function DestinationInput({
   placeholder = "¿A dónde quieres ir?",
   disabled = false,
   currentDestination,
+  busStops = [],
 }: DestinationInputProps) {
   const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<typeof POPULAR_DESTINATIONS>([]);
+  const [suggestions, setSuggestions] = useState<Array<{ name: string; coordinates: [number, number]; description?: string; isBusStop?: boolean }>>([]);
   const [isOpen, setIsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -55,20 +57,32 @@ export function DestinationInput({
     setQuery(value);
     
     if (value.trim().length > 0) {
-      const filtered = POPULAR_DESTINATIONS.filter(
+      const lowerValue = value.toLowerCase();
+      
+      // Filtrar populares (coincidencia en cualquier parte)
+      const filteredPopular = POPULAR_DESTINATIONS.filter(
         (dest) =>
-          dest.name.toLowerCase().includes(value.toLowerCase()) ||
-          dest.description?.toLowerCase().includes(value.toLowerCase())
+          dest.name.toLowerCase().includes(lowerValue) ||
+          dest.description?.toLowerCase().includes(lowerValue)
       );
-      setSuggestions(filtered);
+
+      // Filtrar paradas de bus (coincidencia en cualquier parte)
+      const filteredBusStops = busStops
+        .filter((stop) => stop.name.toLowerCase().includes(lowerValue))
+        .map(stop => ({ ...stop, description: "Parada de autobús", isBusStop: true }));
+
+      // Combinar resultados (priorizar populares, luego paradas)
+      const combined = [...filteredPopular, ...filteredBusStops].slice(0, 10);
+      
+      setSuggestions(combined);
       setIsOpen(true);
     } else {
-      setSuggestions(POPULAR_DESTINATIONS.slice(0, 5)); // Mostrar primeros 5 por defecto
+      setSuggestions(POPULAR_DESTINATIONS.slice(0, 5));
       setIsOpen(true);
     }
-  }, []);
+  }, [busStops]);
 
-  const handleDestinationSelect = useCallback((destination: typeof POPULAR_DESTINATIONS[0]) => {
+  const handleDestinationSelect = useCallback((destination: { name: string; coordinates: [number, number] }) => {
     const dest: Destination = {
       name: destination.name,
       coordinates: destination.coordinates,
@@ -162,13 +176,19 @@ export function DestinationInput({
                 className="w-full text-left px-3 py-3 rounded-xl hover:bg-[var(--overlay-card)] transition-colors group"
               >
                 <div className="flex items-start gap-3">
-                  <MapPin className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                  {destination.isBusStop ? (
+                    <div className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500/20 text-indigo-500 flex-shrink-0">
+                      <Bus className="h-2.5 w-2.5" />
+                    </div>
+                  ) : (
+                    <MapPin className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                  )}
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium text-[var(--overlay-text)] group-hover:text-emerald-500 transition-colors">
+                    <div className="font-medium text-[var(--overlay-text)] group-hover:text-emerald-500 transition-colors truncate">
                       {destination.name}
                     </div>
                     {destination.description && (
-                      <div className="text-sm text-[var(--overlay-text-muted)] mt-0.5">
+                      <div className="text-[10px] text-[var(--overlay-text-muted)] mt-0.5 uppercase tracking-wider font-medium">
                         {destination.description}
                       </div>
                     )}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Bot, Sparkles, Mic, MicOff } from "lucide-react";
+import { Bot, Sparkles, Mic, MicOff, X } from "lucide-react";
+import type { UserProfile } from "@/lib/routing";
 
 // Add type for Web Speech API
 declare global {
@@ -28,11 +29,20 @@ type FleetStats = {
   ecoPercentage: number;
 };
 
-export function FleetGuideAgent() {
+export function FleetGuideAgent({
+  userLocation,
+  onAutoRoute,
+  onUpdateProfile,
+}: {
+  userLocation?: { lng: number; lat: number } | null;
+  onAutoRoute?: (lng: number, lat: number, name: string) => void;
+  onUpdateProfile?: (profile: UserProfile | null) => void;
+}) {
   const [stats, setStats] = useState<FleetStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<{ sender: "user" | "agent"; text: string }[]>([]);
+  const [messages, setMessages] = useState<{ sender: "user" | "agent"; text: string; options?: any }[]>([]);
+  const [pendingStop, setPendingStop] = useState<any>(null);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -43,35 +53,84 @@ export function FleetGuideAgent() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<any>(null);
 
+  const SUGGESTIONS = [
+    { label: "📊 Flota", text: "¿Cómo es la flota de autobuses?" },
+    { label: "📍 Paradas", text: "¿Dónde hay paradas de bus?" },
+    { label: "🏃 Próxima", text: "Busca la parada más cercana y llévame" },
+    { label: "🚲 Bicis", text: "¿Dime algo sobre las bicicletas?" },
+    { label: "😷 Polución", text: "¿Qué zonas tienen más contaminación?" },
+    { label: "🚗 Tráfico", text: "¿Cómo está el tráfico ahora?" },
+    { label: "👋 Hola", text: "Hola, ¿quién eres?" },
+  ];
+
+  const handleOptionSelect = (profile: UserProfile, mode: string) => {
+    if (!pendingStop) return;
+    
+    setMessages((s) => [...s, { 
+      sender: 'agent', 
+      text: `Entendido. Aplicando perfil **${profile}** y buscando ruta en **${mode === 'walking' ? 'a pie' : mode === 'cycling' ? 'bici' : 'bus/coche'}** hacia ${pendingStop.name}...` 
+    }]);
+
+    if (onUpdateProfile) {
+      onUpdateProfile(profile);
+    }
+
+    if (onAutoRoute) {
+      onAutoRoute(pendingStop.lng, pendingStop.lat, pendingStop.name);
+    }
+    
+    setPendingStop(null);
+  };
+
   useEffect(() => {
+    let recognition: any = null;
+    
     if (typeof window !== "undefined") {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = false;
-        recognitionRef.current.lang = "es-ES";
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = "es-ES";
 
-        recognitionRef.current.onresult = (event: any) => {
+        recognition.onresult = (event: any) => {
           const transcript = event.results[0][0].transcript;
           setInput(transcript);
           setIsListening(false);
-          // Auto-submit if transcript is meaningful
           if (transcript.length > 2) {
             handleSendMessage(transcript);
           }
         };
 
-        recognitionRef.current.onerror = (event: any) => {
+        recognition.onerror = (event: any) => {
           console.error("Speech recognition error", event.error);
           setIsListening(false);
+          
+          let errorMsg = "No pude entenderte bien. ¿Podrías repetirlo?";
+          if (event.error === 'not-allowed') errorMsg = "No tengo permiso para usar el micrófono. Por favor, actívalo en tu navegador.";
+          if (event.error === 'network') errorMsg = "Error de red al procesar la voz.";
+          if (event.error === 'no-speech') return; 
+
+          setMessages((s) => [...s, { sender: 'agent', text: errorMsg }]);
         };
 
-        recognitionRef.current.onend = () => {
+        recognition.onend = () => {
           setIsListening(false);
         };
+        
+        recognitionRef.current = recognition;
       }
     }
+
+    return () => {
+      if (recognition) {
+        try {
+          recognition.stop();
+        } catch (e) {
+          // Ya detenido
+        }
+      }
+    };
   }, []);
 
   const toggleListening = () => {
@@ -89,6 +148,86 @@ export function FleetGuideAgent() {
     const userText = text.trim();
     setMessages((s) => [...s, { sender: "user", text: userText }]);
     setInput("");
+    setPendingStop(null); // Clear pending if user types manually
+
+    // Special logic for "Nearest Stop"
+    if (userText.toLowerCase().includes("parada más cercana") || userText.toLowerCase().includes("llévame")) {
+      setIsTyping(true);
+      if (!userLocation) {
+        setMessages((s) => [...s, { sender: 'agent', text: 'No puedo detectar tu ubicación. Asegúrate de activar el GPS para encontrar la parada más cercana.' }]);
+        setIsTyping(false);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/santander/bus-stops');
+        if (res.ok) {
+          const data = await res.json();
+          // El API puede devolver { resources: [...] } o { items: [...] } según si es el proxy o el transformado
+          const stops = data.resources || data.items || [];
+          
+          if (stops.length > 0) {
+            // Find closest stop using simple distance
+            let closest = stops[0];
+            let minDistance = Infinity;
+            
+            stops.forEach((stop: any) => {
+              // Manejar diferentes formatos de coordenadas (geometry.coordinates o lat/lng directos)
+              let stopLng, stopLat;
+              if (stop.geometry?.coordinates) {
+                [stopLng, stopLat] = stop.geometry.coordinates;
+              } else {
+                stopLng = parseFloat(stop.lng || stop["wgs84_pos:long"]);
+                stopLat = parseFloat(stop.lat || stop["wgs84_pos:lat"]);
+              }
+
+              if (isNaN(stopLng) || isNaN(stopLat)) return;
+
+              const d = Math.sqrt(
+                Math.pow(stopLng - userLocation.lng, 2) + 
+                Math.pow(stopLat - userLocation.lat, 2)
+              );
+              if (d < minDistance) {
+                minDistance = d;
+                closest = stop;
+              }
+            });
+
+            const stopName = closest.properties?.["ayto:NombreParada"] || closest.name || closest["ayto:parada"] || "Parada cercana";
+            
+            let clLng, clLat;
+            if (closest.geometry?.coordinates) {
+              [clLng, clLat] = closest.geometry.coordinates;
+            } else {
+              clLng = parseFloat(closest.lng || closest["wgs84_pos:long"]);
+              clLat = parseFloat(closest.lat || closest["wgs84_pos:lat"]);
+            }
+            
+            setPendingStop({ lng: clLng, lat: clLat, name: stopName });
+            setMessages((s) => [...s, { 
+              sender: 'agent', 
+              text: `He encontrado la parada más cercana: **${stopName}**. ¿Cómo te gustaría llegar? Elige un perfil y modo de transporte:`,
+              options: {
+                profiles: ["PRISA", "ECO", "SEGURIDAD"],
+                modes: [
+                  { id: "walking", label: "A pie", icon: "foot" },
+                  { id: "cycling", label: "Bici", icon: "bike" },
+                  { id: "bus", label: "Bus/Coche", icon: "bus" }
+                ]
+              }
+            }]);
+          } else {
+            setMessages((s) => [...s, { sender: 'agent', text: 'No he encontrado paradas de autobús disponibles en este momento.' }]);
+          }
+        }
+      } catch (err) {
+        setMessages((s) => [...s, { sender: 'agent', text: 'Hubo un error al buscar las paradas cercanas.' }]);
+      } finally {
+        setIsTyping(false);
+      }
+      return;
+    }
+
     setIsTyping(true);
     try {
       const res = await fetch('/api/agent/chat', {
@@ -248,19 +387,23 @@ export function FleetGuideAgent() {
   // keep the floating button visible even while loading; show loading inside panel
 
   return (
-    <div className="absolute right-4 bottom-10 z-20 flex flex-col items-end gap-2 md:bottom-12">
+    <div className="pointer-events-none absolute right-4 bottom-4 z-30 flex flex-col-reverse items-end gap-3 md:bottom-6 md:right-6">
       {/* Botón Flotante del Agente */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-controls="fleet-agent-panel"
         aria-label={isOpen ? "Cerrar agente Smart Data" : "Abrir agente Smart Data"}
-        className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-[0_0_20px_rgba(79,70,229,0.5)] transition-all hover:scale-110 hover:bg-indigo-500"
+        className={`pointer-events-auto group relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-all duration-500 hover:scale-110 active:scale-95 ${
+          isOpen ? 'bg-rose-500 rotate-180' : 'bg-indigo-600 hover:bg-indigo-500'
+        }`}
       >
-        <Bot className="h-7 w-7 text-white" />
-        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-400">
-          <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-        </span>
+        {isOpen ? <X className="h-6 w-6 text-white" /> : <Bot className="h-7 w-7 text-white animate-in zoom-in duration-300" />}
+        {!isOpen && (
+          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-400 border-2 border-white dark:border-zinc-900">
+            <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+          </span>
+        )}
       </button>
 
       {/* Panel de Análisis y Chat */}
@@ -271,7 +414,9 @@ export function FleetGuideAgent() {
         aria-modal="true"
         aria-labelledby="fleet-agent-title"
         aria-describedby="fleet-agent-desc"
-        className={`w-80 max-w-sm overflow-hidden rounded-2xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)]/95 shadow-2xl backdrop-blur-xl transition-all duration-300 origin-bottom-right ${isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0 pointer-events-none hidden'}`}
+        className={`pointer-events-auto w-80 max-w-sm overflow-hidden rounded-3xl border border-white/20 bg-[var(--overlay-surface)]/90 shadow-[0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-2xl transition-all duration-500 origin-bottom-right ${
+          isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-10 pointer-events-none'
+        }`}
       >
           <div className="flex items-center gap-3 border-b border-white/10 bg-indigo-600/10 p-4">
           <div className="relative rounded-full bg-indigo-500/20 p-2">
@@ -382,13 +527,29 @@ export function FleetGuideAgent() {
             </div>
           ) : null}
 
-          {/* Chat messages */}
-          <div className="max-h-48 overflow-y-auto px-3" aria-live="polite">
-            {messages.length === 0 && (
-              <div className="text-xs text-[var(--overlay-text-muted)]">Haz preguntas sobre la flota, p. ej.: "¿Qué % es diesel?"</div>
-            )}
-            {messages.map((m, idx) => (
-              <div key={idx} className={`mt-2 flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+          {/* Chat Section */}
+          <div className="flex flex-col gap-3">
+            <h4 className="px-3 text-[10px] font-bold uppercase tracking-widest text-[var(--overlay-text-muted)]">Asistente Virtual</h4>
+            
+            {/* Sugerencias siempre visibles */}
+            <div className="flex flex-wrap gap-2 px-3 mb-1">
+              {SUGGESTIONS.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleSendMessage(s.text)}
+                  className="rounded-full border border-indigo-500/20 bg-indigo-500/5 px-3 py-1.5 text-[11px] font-medium text-indigo-600 transition-all hover:bg-indigo-500 hover:text-white dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="max-h-48 overflow-y-auto px-3" aria-live="polite">
+              {messages.length === 0 && (
+                <div className="text-xs text-[var(--overlay-text-muted)]">Haz preguntas sobre la flota, p. ej.: "¿Qué % es diesel?"</div>
+              )}
+              {messages.map((m, idx) => (
+                <div key={idx} className={`mt-2 flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
                   m.sender === 'user' 
                     ? 'bg-indigo-600 text-white rounded-tr-none' 
@@ -396,13 +557,49 @@ export function FleetGuideAgent() {
                 }`}>
                   {m.text}
                 </div>
+                
+                {/* Menú de opciones si existen */}
+                {m.options && pendingStop && (
+                  <div className="mt-3 flex flex-col gap-3 w-full max-w-[90%] rounded-2xl bg-indigo-500/10 p-4 border border-indigo-500/20 animate-in fade-in zoom-in-95 duration-300">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 mb-2">1. Elige tu Perfil</p>
+                      <div className="flex gap-2">
+                        {m.options.profiles.map((p: UserProfile) => (
+                          <button
+                            key={p}
+                            onClick={() => {
+                              const mode = (document.getElementById('mode-select') as HTMLSelectElement)?.value || 'walking';
+                              handleOptionSelect(p, mode);
+                            }}
+                            className="flex-1 rounded-lg bg-white/80 dark:bg-white/10 px-2 py-1.5 text-[10px] font-bold transition-all hover:bg-indigo-600 hover:text-white border border-indigo-500/20"
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 mb-2">2. Modo de Transporte</p>
+                      <select 
+                        id="mode-select"
+                        className="w-full rounded-lg bg-white/80 dark:bg-white/10 px-3 py-2 text-xs border border-indigo-500/20 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      >
+                        <option value="walking">🏃 A pie</option>
+                        <option value="cycling">🚲 Bicicleta</option>
+                        <option value="bus">🚌 Bus / Coche</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
-            ))}
-            {isTyping && (
-              <div className="mt-2 flex justify-start">
-                <div className="rounded-lg bg-[var(--overlay-card)] px-3 py-2 text-sm text-[var(--overlay-text-muted)]">Escribiendo…</div>
-              </div>
-            )}
+              ))}
+              {isTyping && (
+                <div className="mt-2 flex justify-start">
+                  <div className="rounded-lg bg-[var(--overlay-card)] px-3 py-2 text-sm text-[var(--overlay-text-muted)]">Escribiendo…</div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Input area */}

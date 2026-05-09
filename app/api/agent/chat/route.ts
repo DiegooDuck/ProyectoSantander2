@@ -58,6 +58,27 @@ export async function POST(req: Request) {
       }
     }
 
+    // 2b. Traffic & Pollution
+    if (/contaminaci[oó]n|tr[aá]fico|aire|poluci[oó]n/.test(message)) {
+      try {
+        // En un escenario real, cargaríamos esto desde una API de tráfico/sensores
+        // Por ahora, simulamos el análisis basado en los puntos calientes conocidos
+        const hotspots = [
+          { name: "Avenida de los Castros", status: "Alta", reason: "Densidad de tráfico moderada" },
+          { name: "Víctor Sánchez", status: "Crítica", reason: "Tráfico pesado detectado" },
+          { name: "Pechina", status: "Moderada", reason: "Flujo vehicular constante" }
+        ];
+        
+        const summary = hotspots.map(h => `- **${h.name}**: Nivel ${h.status} (${h.reason})`).join("\n");
+        
+        return NextResponse.json({ 
+          reply: `Basado en los datos de tráfico actuales, las zonas con mayor potencial de contaminación por emisiones son:\n\n${summary}\n\nTe recomiendo usar rutas 'ECO' o moverte en bicicleta por estas zonas para ayudar a reducir el impacto ambiental. 🌍` 
+        });
+      } catch (err) {
+        return NextResponse.json({ reply: "No tengo datos actualizados sobre la calidad del aire en este momento." });
+      }
+    }
+
     // 3. Bikes (Placeholder or mock check)
     if (/bici|bicicleta|estaci[oó]n de bici/.test(message)) {
       return NextResponse.json({ 

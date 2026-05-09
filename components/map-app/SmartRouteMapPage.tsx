@@ -105,30 +105,9 @@ function MapExperience() {
       const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
       if (!token) throw new Error("Falta el token de Mapbox");
 
-      const getUserLocation = (): Promise<{ lng: number; lat: number }> => {
-        return new Promise((resolve, reject) => {
-          if (!navigator.geolocation) {
-            reject(new Error("Geolocalización no soportada"));
-            return;
-          }
-          navigator.geolocation.getCurrentPosition(
-            (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude }),
-            (err) => reject(err),
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-          );
-        });
-      };
-
-      let originLng = -3.80998;
-      let originLat = 43.46231;
-
-      try {
-        const loc = await getUserLocation();
-        originLng = loc.lng;
-        originLat = loc.lat;
-      } catch (err) {
-        console.warn("No se pudo obtener la ubicación, usando origen por defecto", err);
-      }
+      // Usar la ubicación ya rastreada si está disponible, si no, fallback al origen por defecto
+      let originLng = userLocation?.lng ?? -3.80998;
+      let originLat = userLocation?.lat ?? 43.46231;
 
       const destLng = targetDest.coordinates[0];
       const destLat = targetDest.coordinates[1];
@@ -237,6 +216,14 @@ function MapExperience() {
   const isEcoFriendly = activeScore?.candidate.legs.every((l) => l.mode === "walking" || l.mode === "cycling");
   const earnedPoints = isEcoProfile && isEcoFriendly ? 50 : 0;
 
+  const busStopsForInput = useMemo(() => {
+    if (!bundle) return [];
+    return bundle.busStops.items.map(s => ({
+      name: s.name,
+      coordinates: [s.lng, s.lat] as [number, number]
+    }));
+  }, [bundle]);
+
   return (
     <div className="relative h-dvh min-h-0 w-full overflow-hidden bg-black">
       <div className="absolute inset-0 z-0">
@@ -254,9 +241,10 @@ function MapExperience() {
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-10 flex min-h-0 min-w-0 flex-col">
-        <header className="pointer-events-auto flex shrink-0 items-start justify-between gap-3 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:items-center sm:px-5">
-          <div className="flex min-w-0 flex-col gap-1">
+      <div className="pointer-events-none absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col">
+        <header className="pointer-events-none flex shrink-0 items-center justify-center px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-5">
+          {/* Título a la izquierda */}
+          <div className="pointer-events-auto absolute left-4 top-[max(0.75rem,env(safe-area-inset-top))] flex min-w-0 flex-col gap-1 sm:left-5">
             <Link
               href="/landing"
               className="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-[var(--overlay-text-muted)] underline-offset-4 hover:underline"
@@ -267,25 +255,27 @@ function MapExperience() {
               Smart Route
             </h1>
           </div>
-          <ThemeSwitcher value={theme} onChange={setTheme} />
-        </header>
 
-        <FleetGuideAgent />
+          {/* Selector de temas centrado */}
+          <div className="pointer-events-auto flex items-center justify-center">
+            <ThemeSwitcher value={theme} onChange={setTheme} />
+          </div>
+        </header>
 
         <div className="min-h-0 flex-1" aria-hidden />
 
-        <div className="pointer-events-auto mt-auto w-full min-w-0 max-w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 md:absolute md:bottom-4 md:left-4 md:mt-0 md:max-w-md md:px-0 md:pb-0 lg:max-w-lg transition-all duration-300">
+        <div className="pointer-events-auto mt-auto w-full min-w-0 max-w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 md:absolute md:bottom-4 md:left-4 md:mt-0 md:max-w-md md:px-0 md:pb-0 lg:max-w-lg transition-all duration-500 ease-in-out">
           <div className="flex justify-end mb-2">
             <button 
               onClick={() => setIsPanelExpanded(!isPanelExpanded)}
-              className="bg-[var(--overlay-surface)] border border-[var(--overlay-border)] text-[var(--overlay-text)] p-2 rounded-full shadow-lg backdrop-blur hover:bg-[var(--overlay-card)] transition"
+              className="bg-[var(--overlay-surface)] border border-[var(--overlay-border)] text-[var(--overlay-text)] p-2.5 rounded-full shadow-lg backdrop-blur hover:bg-[var(--overlay-card)] hover:scale-110 active:scale-95 transition-all duration-300"
               aria-label={isPanelExpanded ? "Minimizar panel" : "Expandir panel"}
             >
-              {isPanelExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
+              {isPanelExpanded ? <ChevronDown className="h-5 w-5 animate-in slide-in-from-top-1" /> : <ChevronUp className="h-5 w-5 animate-in slide-in-from-bottom-1" />}
             </button>
           </div>
           
-          <div className={`overflow-y-auto rounded-3xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)] shadow-[0_-8px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl md:rounded-2xl md:shadow-2xl transition-all duration-300 origin-bottom ${isPanelExpanded ? 'max-h-[min(52dvh,28rem)] md:max-h-none opacity-100 scale-100' : 'max-h-0 opacity-0 scale-95 overflow-hidden border-none shadow-none py-0'}`}>
+          <div className={`overflow-y-auto rounded-3xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)]/90 shadow-[0_-8px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:rounded-2xl md:shadow-2xl transition-all duration-500 origin-bottom ease-in-out ${isPanelExpanded ? 'max-h-[min(52dvh,28rem)] md:max-h-none opacity-100 scale-100 translate-y-0' : 'max-h-0 opacity-0 scale-95 translate-y-4 overflow-hidden border-none shadow-none py-0'}`}>
             <div className="mx-auto flex flex-col gap-4 p-4 sm:p-5">
               {loadError ? (
                 <p className="text-sm text-red-400">{loadError}</p>
@@ -311,6 +301,7 @@ function MapExperience() {
                     onConfirm={handleGenerateRoute}
                     isConfirming={isGenerating}
                     disabled={isGenerating}
+                    busStops={busStopsForInput}
                   />
 
                   <RouteOptionStrip
@@ -357,7 +348,11 @@ function MapExperience() {
           </div>
         </div>
       </div>
-      <FleetGuideAgent />
+      <FleetGuideAgent 
+         userLocation={userLocation}
+         onAutoRoute={handleStopSelect}
+         onUpdateProfile={setProfile}
+       />
     </div>
   );
 }

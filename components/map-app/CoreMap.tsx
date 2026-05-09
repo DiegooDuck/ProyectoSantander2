@@ -56,6 +56,21 @@ export function CoreMap({
   const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const mapRef = useRef<MapRef>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [hasCenteredOnUser, setHasCenteredOnUser] = useState(false);
+
+  useEffect(() => {
+    if (!mapReady || !userLocation || hasCenteredOnUser) return;
+    
+    const map = mapRef.current?.getMap();
+    if (map) {
+      map.flyTo({
+        center: [userLocation.lng, userLocation.lat],
+        zoom: 14,
+        duration: 2000
+      });
+      setHasCenteredOnUser(true);
+    }
+  }, [mapReady, userLocation, hasCenteredOnUser]);
 
   const fitRoute = useCallback((data: RouteFeatureCollection) => {
     const map = mapRef.current?.getMap();
