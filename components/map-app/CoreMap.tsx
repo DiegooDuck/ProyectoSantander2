@@ -39,6 +39,14 @@ export type CoreMapProps = {
   trafficGeoJSON: GeoFeatureCollection | null;
   layers: MapLayerVisibility;
   onSelectStop?: (lng: number, lat: number, name: string) => void;
+  onSelectBikeStation?: (station: {
+    id: string;
+    name: string;
+    lng: number;
+    lat: number;
+    availableBikes: number;
+    availableDocks: number;
+  }) => void;
   userLocation: { lng: number; lat: number } | null;
 };
 
@@ -53,6 +61,7 @@ export function CoreMap({
   trafficGeoJSON,
   layers,
   onSelectStop,
+  onSelectBikeStation,
   userLocation,
 }: CoreMapProps) {
   const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
@@ -100,20 +109,35 @@ export function CoreMap({
   const onLoad = useCallback(() => setMapReady(true), []);
 
   const onMapClick = useCallback((event: mapboxgl.MapLayerMouseEvent) => {
-    if (!onSelectStop) return;
-
-    // Verificar si se hizo clic en una parada de bus
     const features = event.features;
-    if (features && features.length > 0) {
-      const stop = features[0];
-      const layerId = stop.layer?.id;
-      if (layerId === "sr-bus-core" || layerId === "sr-bus-halo") {
-        const coordinates = (stop.geometry as any).coordinates;
-        const name = stop.properties?.["ayto:NombreParada"] || "Parada de autobús";
-        onSelectStop(coordinates[0], coordinates[1], name);
-      }
+    if (!features || features.length === 0) return;
+
+    const first = features[0];
+    const layerId = first.layer?.id;
+
+    if ((layerId === "sr-bike-core" || layerId === "sr-bike-halo") && onSelectBikeStation) {
+      const coordinates = ((first.geometry as GeoJSON.Point).coordinates ?? []) as [number, number];
+      const id = String(first.properties?.["id"] ?? "");
+      const name = String(first.properties?.["name"] ?? "Estación de bicis");
+      const availableBikes = Number(first.properties?.["availableBikes"] ?? 0);
+      const availableDocks = Number(first.properties?.["availableDocks"] ?? 0);
+      onSelectBikeStation({
+        id,
+        name,
+        lng: coordinates[0],
+        lat: coordinates[1],
+        availableBikes: Number.isFinite(availableBikes) ? availableBikes : 0,
+        availableDocks: Number.isFinite(availableDocks) ? availableDocks : 0,
+      });
+      return;
     }
-  }, [onSelectStop]);
+
+    if ((layerId === "sr-bus-core" || layerId === "sr-bus-halo") && onSelectStop) {
+      const coordinates = ((first.geometry as GeoJSON.Point).coordinates ?? []) as [number, number];
+      const name = first.properties?.["ayto:NombreParada"] || "Parada de autobús";
+      onSelectStop(coordinates[0], coordinates[1], name);
+    }
+  }, [onSelectBikeStation, onSelectStop]);
 
   if (!token) {
     return (
@@ -160,7 +184,7 @@ export function CoreMap({
         projection={{ name: "mercator" }}
         onLoad={onLoad}
         onClick={onMapClick}
-        interactiveLayerIds={["sr-bus-core", "sr-bus-halo"]}
+        interactiveLayerIds={["sr-bus-core", "sr-bus-halo", "sr-bike-core", "sr-bike-halo"]}
         cursor="pointer"
       >
         {showTraffic ? (

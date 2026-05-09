@@ -28,6 +28,81 @@ import { ThemeProvider, useAppTheme } from "@/components/theme/ThemeProvider";
 import { FleetGuideAgent } from "@/components/map-app/FleetGuideAgent";
 import { SustainabilityDashboard } from "@/components/map-app/SustainabilityDashboard";
 import { logTrip, type TripMode } from "@/lib/sustainability/tracker";
+import {
+  findNearestStationWithDocks,
+  haversineMeters,
+  type BikeStationLite,
+} from "@/lib/bike-share/availability";
+
+type ToastKind = "info" | "warning" | "success";
+type Toast = {
+  id: string;
+  kind: ToastKind;
+  title: string;
+  detail?: string;
+  cta?: { label: string; destination: { lng: number; lat: number; name: string } };
+};
+
+function formatMeters(meters: number): string {
+  if (!Number.isFinite(meters)) return "";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function ToastStack({
+  items,
+  onDismiss,
+  onNavigate,
+}: {
+  items: Toast[];
+  onDismiss: (id: string) => void;
+  onNavigate: (dest: { lng: number; lat: number; name: string }) => void;
+}) {
+  if (!items.length) return null;
+
+  const kindClasses: Record<ToastKind, string> = {
+    info: "border-white/10 bg-[var(--overlay-surface)]/90 text-[var(--overlay-text)]",
+    success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-100",
+    warning: "border-amber-500/20 bg-amber-500/10 text-amber-100",
+  };
+
+  return (
+    <div className="pointer-events-none absolute left-0 right-0 top-[max(3.75rem,env(safe-area-inset-top))] z-30 mx-auto flex max-w-[min(42rem,calc(100vw-1.5rem))] flex-col gap-2 px-3">
+      {items.map((t) => (
+        <div
+          key={t.id}
+          className={`pointer-events-auto rounded-2xl border px-3 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-2xl ${kindClasses[t.kind]}`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[0.8125rem] font-semibold">{t.title}</p>
+              {t.detail ? (
+                <p className="mt-0.5 text-[0.75rem] opacity-90">{t.detail}</p>
+              ) : null}
+              {t.cta ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigate(t.cta!.destination)}
+                  className="mt-2 inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[0.6875rem] font-semibold hover:bg-white/10"
+                >
+                  {t.cta.label}
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              aria-label="Cerrar"
+              onClick={() => onDismiss(t.id)}
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[0.6875rem] font-semibold hover:bg-white/10"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function MapExperience() {
   const { theme, setTheme, mapStyleUrl, routeLineColor } = useAppTheme();
@@ -42,6 +117,14 @@ function MapExperience() {
   const [isAgentOpen, setIsAgentOpen] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lng: number; lat: number } | null>(null);
   const [sustainKey, setSustainKey] = useState(0); // bump to refresh dashboard
+  const [selectedBikeStation, setSelectedBikeStation] = useState<BikeStationLite | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [activeRide, setActiveRide] = useState<{
+    fromStationId: string;
+    batteryPct: number;
+    startedAt: number;
+  } | null>(null);
+  const lowBatteryNotifiedRef = useRef(false);
   const [layers, setLayers] = useState<MapLayerVisibility>({
     buses: true,
     bikes: true,
@@ -87,6 +170,49 @@ function MapExperience() {
   useEffect(() => {
     setManualRouteId(null);
   }, [profile]);
+
+  const pushToast = useCallback((t: Omit<Toast, "id">) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const next: Toast = { id, ...t };
+    setToasts((prev) => [next, ...prev].slice(0, 4));
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((x) => x.id !== id));
+    }, 8000);
+    return id;
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  useEffect(() => {
+    if (!activeRide) return;
+
+    const interval = window.setInterval(() => {
+      setActiveRide((prev) => {
+        if (!prev) return prev;
+        const nextBattery = Math.max(0, prev.batteryPct - 3);
+        return { ...prev, batteryPct: nextBattery };
+      });
+    }, 15_000);
+
+    return () => window.clearInterval(interval);
+  }, [activeRide]);
+
+  useEffect(() => {
+    if (!activeRide) {
+      lowBatteryNotifiedRef.current = false;
+      return;
+    }
+    if (activeRide.batteryPct <= 25 && !lowBatteryNotifiedRef.current) {
+      lowBatteryNotifiedRef.current = true;
+      pushToast({
+        kind: "warning",
+        title: "Batería baja",
+        detail: `Tu e-bike está al ${activeRide.batteryPct}%. Te conviene ir hacia una estación con docks libres.`,
+      });
+    }
+  }, [activeRide, pushToast]);
 
 
 
@@ -248,8 +374,91 @@ function MapExperience() {
     }));
   }, [bundle]);
 
+  const bikeStationsLite = useMemo((): BikeStationLite[] => {
+    if (!bundle) return [];
+    return bundle.bikeShare.items.map((s) => ({
+      id: s.id,
+      name: s.name,
+      lng: s.lng,
+      lat: s.lat,
+      availableBikes: s.availableBikes,
+      availableDocks: s.availableDocks,
+    }));
+  }, [bundle]);
+
+  const handlePickup = useCallback(() => {
+    if (!selectedBikeStation) return;
+    if (selectedBikeStation.availableBikes <= 0) {
+      pushToast({
+        kind: "warning",
+        title: "No hay bicis disponibles",
+        detail: `La estación “${selectedBikeStation.name}” no tiene e-bikes ahora mismo.`,
+      });
+      return;
+    }
+
+    const seed =
+      Array.from(selectedBikeStation.id).reduce((acc, ch) => acc + ch.charCodeAt(0), 0) +
+      new Date().getMinutes();
+    const battery = 15 + (seed % 86); // 15..100
+    setActiveRide({
+      fromStationId: selectedBikeStation.id,
+      batteryPct: battery,
+      startedAt: Date.now(),
+    });
+    pushToast({
+      kind: battery <= 25 ? "warning" : "success",
+      title: `E-bike desbloqueada (${battery}%)`,
+      detail: battery <= 25 ? "Ojo: batería baja. Te avisaremos si necesitas cambiar de estación." : "Listo. Buen viaje.",
+    });
+  }, [pushToast, selectedBikeStation]);
+
+  const handleReturn = useCallback(() => {
+    if (!selectedBikeStation) return;
+
+    if (selectedBikeStation.availableDocks > 0) {
+      setActiveRide(null);
+      pushToast({
+        kind: "success",
+        title: "Bici devuelta",
+        detail: `Devolución OK en “${selectedBikeStation.name}”.`,
+      });
+      return;
+    }
+
+    const nearest = findNearestStationWithDocks(
+      { lng: selectedBikeStation.lng, lat: selectedBikeStation.lat },
+      bikeStationsLite,
+      { excludeId: selectedBikeStation.id },
+    );
+
+    if (!nearest) {
+      pushToast({
+        kind: "warning",
+        title: "Estación llena",
+        detail: `No hay docks libres cerca de “${selectedBikeStation.name}”. Prueba otra zona.`,
+      });
+      return;
+    }
+
+    pushToast({
+      kind: "warning",
+      title: "Estación llena",
+      detail: `“${selectedBikeStation.name}” está completa. Alternativa: “${nearest.station.name}” (${formatMeters(nearest.distanceMeters)}).`,
+      cta: {
+        label: "Ir a la alternativa",
+        destination: { lng: nearest.station.lng, lat: nearest.station.lat, name: nearest.station.name },
+      },
+    });
+  }, [bikeStationsLite, pushToast, selectedBikeStation]);
+
   return (
     <div className="relative h-dvh min-h-0 w-full overflow-hidden bg-black">
+      <ToastStack
+        items={toasts}
+        onDismiss={dismissToast}
+        onNavigate={(dest) => handleStopSelect(dest.lng, dest.lat, dest.name)}
+      />
       <div className="absolute inset-0 z-0">
         <CoreMap
           className="h-full w-full"
@@ -262,6 +471,16 @@ function MapExperience() {
           trafficGeoJSON={trafficGeoJSON}
           layers={layers}
           onSelectStop={handleStopSelect}
+          onSelectBikeStation={(s) => {
+            setSelectedBikeStation(s);
+            const from = userLocation ? { lng: userLocation.lng, lat: userLocation.lat } : null;
+            const d = from ? haversineMeters(from, s) : null;
+            pushToast({
+              kind: "info",
+              title: `Estación: ${s.name}`,
+              detail: `${s.availableBikes} bicis · ${s.availableDocks} docks` + (d ? ` · a ${formatMeters(d)}` : ""),
+            });
+          }}
           userLocation={userLocation}
         />
       </div>
@@ -313,6 +532,62 @@ function MapExperience() {
 
               {bundle ? (
                 <>
+                  {selectedBikeStation ? (
+                    <div className="rounded-2xl border border-[var(--overlay-border)] bg-[var(--overlay-card)] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[0.625rem] font-semibold uppercase tracking-[0.12em] text-[var(--overlay-text-muted)]">
+                            E-Bikes · disponibilidad
+                          </p>
+                          <p className="mt-1 truncate text-[0.875rem] font-bold text-[var(--overlay-text)]">
+                            {selectedBikeStation.name}
+                          </p>
+                          <p className="mt-0.5 text-[0.75rem] text-[var(--overlay-text-muted)]">
+                            🚲 {selectedBikeStation.availableBikes} bicis · 🅿️ {selectedBikeStation.availableDocks} docks
+                            {activeRide ? <> · 🔋 {activeRide.batteryPct}%</> : null}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBikeStation(null)}
+                          className="rounded-lg border border-[var(--overlay-border)] bg-[var(--overlay-surface)]/70 px-2 py-1 text-[0.6875rem] font-semibold text-[var(--overlay-text)] hover:bg-[var(--overlay-card)]"
+                        >
+                          Cerrar
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleStopSelect(
+                              selectedBikeStation.lng,
+                              selectedBikeStation.lat,
+                              selectedBikeStation.name,
+                            )
+                          }
+                          className="rounded-xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)]/70 px-3 py-2 text-[0.75rem] font-semibold text-[var(--overlay-text)] hover:bg-[var(--overlay-card)]"
+                        >
+                          Ir a esta estación
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePickup}
+                          className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[0.75rem] font-semibold text-emerald-200 hover:bg-emerald-500/15"
+                        >
+                          Recoger e-bike
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleReturn}
+                          className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[0.75rem] font-semibold text-amber-200 hover:bg-amber-500/15"
+                        >
+                          Devolver aquí
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <DestinationInput
                     currentDestination={destination}
                     onDestinationSelect={(dest) => {
