@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Leaf, ChevronUp, ChevronDown, Bell, BellOff, X } from "lucide-react";
+import {
+  ArrowRight,
+  Bell,
+  BellOff,
+  ChevronDown,
+  ChevronUp,
+  Leaf,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   bikeShareToGeoJSON,
   busStopsToGeoJSON,
@@ -213,6 +222,22 @@ function MapExperience() {
   const [ecoRewardMessage, setEcoRewardMessage] = useState<string | null>(null);
   const [ecoRewardTotalPoints, setEcoRewardTotalPoints] = useState<number | null>(null);
   const lowBatteryNotifiedRef = useRef(false);
+  const [ecoPointsHeader, setEcoPointsHeader] = useState<number | null>(null);
+
+  const syncEcoPointsHeader = useCallback(() => {
+    if (typeof window === "undefined") return;
+    setEcoPointsHeader(getStats().totalEcoPoints);
+  }, []);
+
+  useEffect(() => {
+    syncEcoPointsHeader();
+    window.addEventListener("focus", syncEcoPointsHeader);
+    return () => window.removeEventListener("focus", syncEcoPointsHeader);
+  }, [syncEcoPointsHeader]);
+
+  useEffect(() => {
+    syncEcoPointsHeader();
+  }, [syncEcoPointsHeader, sustainKey]);
 
   const pushToast = useCallback((t: Omit<Toast, "id">, gate: keyof NotifPrefs) => {
     if (!notifPrefsRef.current[gate]) return "";
@@ -545,8 +570,9 @@ function MapExperience() {
       bonusEcoPoints,
       destination: destination?.name ?? "Destino",
     });
+    const updatedStats = getStats();
+    setEcoPointsHeader(updatedStats.totalEcoPoints);
     if (bonusEcoPoints > 0) {
-      const updatedStats = getStats();
       setEcoRewardTotalPoints(updatedStats.totalEcoPoints);
       const busInfo = leg.mode === "bus" && selectedEcoBusType ? ` (${selectedEcoBusType})` : "";
       setEcoRewardMessage(`Viaje ECO confirmado${busInfo}. ¡Has ganado +50 puntos!`);
@@ -721,14 +747,31 @@ function MapExperience() {
       <div className="pointer-events-none absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col">
         <header className="pointer-events-none flex shrink-0 items-center justify-center px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-5">
           {/* Título a la izquierda */}
-          <div className="pointer-events-auto absolute left-4 top-[max(0.75rem,env(safe-area-inset-top))] flex min-w-0 flex-col gap-1 sm:left-5">
+          <div className="pointer-events-auto absolute left-4 top-[max(0.75rem,env(safe-area-inset-top))] z-40 flex max-w-[min(calc(100vw-10rem),20rem)] min-w-0 flex-col gap-2 sm:left-5">
             <Link
               href="/recompensas"
-              className="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-[var(--overlay-text-muted)] underline-offset-4 hover:underline"
+              className="group relative isolate flex items-center gap-2.5 overflow-hidden rounded-2xl border border-emerald-400/45 bg-gradient-to-r from-emerald-500/[0.32] via-teal-500/[0.28] to-cyan-500/[0.3] px-2.5 py-2 shadow-[0_6px_32px_rgba(16,185,129,0.38),inset_0_1px_0_rgba(255,255,255,0.18)] backdrop-blur-xl transition-[transform,filter] hover:brightness-110 hover:scale-[1.02] motion-safe:active:scale-[0.97]"
             >
-              Recompensas
+              <span className="-z-10 pointer-events-none absolute inset-0 opacity-75 mix-blend-soft-light bg-[radial-gradient(ellipse_at_30%_0%,rgba(255,255,255,0.35),transparent_55%)]" aria-hidden />
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-300 to-teal-500 text-emerald-950 shadow-md rewards-chip-pulse">
+                <Sparkles className="h-[1.125rem] w-[1.125rem]" aria-hidden strokeWidth={2.25} />
+              </span>
+              <span className="relative min-w-0 flex-1 py-0.5 text-left leading-tight">
+                <span className="flex items-center gap-1">
+                  <span className="text-[0.6rem] font-extrabold uppercase tracking-[0.16em] text-emerald-50">
+                    Recompensas
+                  </span>
+                  <Sparkles className="h-2.5 w-2.5 shrink-0 text-amber-200 opacity-90" aria-hidden />
+                </span>
+                <span className="block truncate text-[0.8125rem] font-bold tracking-tight text-white drop-shadow-sm">
+                  {ecoPointsHeader === null
+                    ? "Toca para ver tus puntos"
+                    : `${ecoPointsHeader.toLocaleString("es-ES")} pts eco`}
+                </span>
+              </span>
+              <ArrowRight className="relative h-5 w-5 shrink-0 text-emerald-100 opacity-95 transition-transform group-hover:translate-x-1" aria-hidden strokeWidth={2.5} />
             </Link>
-            <h1 className="truncate text-lg font-bold tracking-tight text-[var(--overlay-text)] drop-shadow-sm sm:text-xl">
+            <h1 className="truncate ps-0.5 text-lg font-bold tracking-tight text-[var(--overlay-text)] drop-shadow-sm sm:text-xl">
               Smart Route
             </h1>
           </div>
