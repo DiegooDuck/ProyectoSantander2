@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Hero() {
   return (
     <section className="relative isolate overflow-hidden border-b border-white/[0.04] pb-12 pt-[calc(2.25rem+env(safe-area-inset-top,0px))] sm:pb-16 sm:pt-14 lg:pb-20 lg:pt-16">
@@ -24,12 +26,12 @@ export function Hero() {
         </div>
 
         <div className="flex w-full flex-col gap-3 animate-fade-up [animation-delay:180ms] md:flex-row md:flex-wrap md:items-center md:gap-4">
-          <a
+          <Link
             href="/"
             className="flex min-h-14 w-full shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-500 px-5 text-base font-semibold text-zinc-950 shadow-lg shadow-cyan-500/20 transition hover:brightness-110 hover:shadow-cyan-500/30 active:scale-[0.98] md:w-auto md:min-w-[12rem] md:rounded-xl"
           >
             Abrir mapa
-          </a>
+          </Link>
           <a
             href="#beneficios"
             className="flex min-h-14 w-full shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.03] px-5 text-base font-semibold text-zinc-100 transition hover:border-white/25 hover:bg-white/[0.06] active:scale-[0.98] md:w-auto md:min-w-[12rem] md:rounded-xl"

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Leaf, ChevronUp, ChevronDown } from "lucide-react";
+import { Leaf, ChevronUp, ChevronDown, Bell, BellOff, X } from "lucide-react";
 import {
   bikeShareToGeoJSON,
   busStopsToGeoJSON,
@@ -25,22 +25,30 @@ import { ThemeSwitcher } from "@/components/map-app/ThemeSwitcher";
 import { ProfileSelector } from "@/components/routing/ProfileSelector";
 import { DestinationInput, type Destination } from "@/components/routing/DestinationInput";
 import { ThemeProvider, useAppTheme } from "@/components/theme/ThemeProvider";
+import { ROUTE_LINE_BY_PROFILE, ROUTE_LINE_BY_THEME } from "@/lib/theme/constants";
 import { FleetGuideAgent } from "@/components/map-app/FleetGuideAgent";
 import { SustainabilityDashboard } from "@/components/map-app/SustainabilityDashboard";
-import { logTrip, type TripMode } from "@/lib/sustainability/tracker";
+import { getStats, logTrip, type TripMode } from "@/lib/sustainability/tracker";
 import {
   findNearestStationWithDocks,
   haversineMeters,
   type BikeStationLite,
 } from "@/lib/bike-share/availability";
 
-type ToastKind = "info" | "warning" | "success";
+type ToastKind = "info" | "warning" | "success" | "critical";
 type Toast = {
   id: string;
   kind: ToastKind;
   title: string;
   detail?: string;
   cta?: { label: string; destination: { lng: number; lat: number; name: string } };
+};
+
+type NotifPrefs = {
+  bikes: boolean;
+  parking: boolean;
+  incidents: boolean;
+  airQuality: boolean;
 };
 
 function formatMeters(meters: number): string {
@@ -60,55 +68,124 @@ function ToastStack({
 }) {
   if (!items.length) return null;
 
-  const kindClasses: Record<ToastKind, string> = {
-    info: "border-white/10 bg-[var(--overlay-surface)]/90 text-[var(--overlay-text)]",
-    success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-100",
-    warning: "border-amber-500/20 bg-amber-500/10 text-amber-100",
+  const kindMeta: Record<ToastKind, { bar: string; badge: string; icon: string; glow: string }> = {
+    info:     { bar: "bg-sky-400",     badge: "bg-sky-500/20 text-sky-300 border-sky-500/30",             icon: "ℹ️", glow: "" },
+    success:  { bar: "bg-emerald-400", badge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30", icon: "✅", glow: "" },
+    warning:  { bar: "bg-amber-400",   badge: "bg-amber-500/20 text-amber-200 border-amber-500/40",      icon: "⚠️", glow: "shadow-[0_0_20px_rgba(245,158,11,0.35)]" },
+    critical: { bar: "bg-red-500",     badge: "bg-red-500/25 text-red-200 border-red-500/50",            icon: "🚨", glow: "shadow-[0_0_28px_rgba(220,38,38,0.55)] ring-1 ring-red-500/40 animate-pulse" },
   };
 
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-[max(3.75rem,env(safe-area-inset-top))] z-30 mx-auto flex max-w-[min(42rem,calc(100vw-1.5rem))] flex-col gap-2 px-3">
-      {items.map((t) => (
-        <div
-          key={t.id}
-          className={`pointer-events-auto rounded-2xl border px-3 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-2xl ${kindClasses[t.kind]}`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[0.8125rem] font-semibold">{t.title}</p>
-              {t.detail ? (
-                <p className="mt-0.5 text-[0.75rem] opacity-90">{t.detail}</p>
-              ) : null}
-              {t.cta ? (
-                <button
-                  type="button"
-                  onClick={() => onNavigate(t.cta!.destination)}
-                  className="mt-2 inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[0.6875rem] font-semibold hover:bg-white/10"
-                >
-                  {t.cta.label}
-                </button>
-              ) : null}
+    <div className="pointer-events-none absolute left-0 right-0 top-[max(3.75rem,env(safe-area-inset-top))] z-30 mx-auto flex max-w-[min(44rem,calc(100vw-1rem))] flex-col gap-3 px-3">
+      {items.map((t) => {
+        const meta = kindMeta[t.kind];
+        return (
+          <div
+            key={t.id}
+            style={{ animation: "slideNotif 0.35s cubic-bezier(0.16,1,0.3,1)" }}
+            className={`pointer-events-auto relative overflow-hidden rounded-2xl border border-white/10 bg-gray-950/80 backdrop-blur-2xl ${meta.glow}`}
+          >
+            <div className={`absolute left-0 top-0 h-full w-1 ${meta.bar} opacity-90`} />
+            <div className="flex items-start gap-3 py-3 pl-5 pr-3">
+              <span className="mt-0.5 shrink-0 text-lg leading-none">{meta.icon}</span>
+              <div className="min-w-0 flex-1">
+                <p className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-widest mb-1 ${meta.badge}`}>{t.kind}</p>
+                <p className="text-[0.8125rem] font-semibold text-white leading-snug">{t.title}</p>
+                {t.detail && <p className="mt-0.5 text-[0.75rem] text-gray-300 leading-relaxed">{t.detail}</p>}
+                {t.cta && (
+                  <button type="button" onClick={() => onNavigate(t.cta!.destination)}
+                    className="mt-2 inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[0.6875rem] font-semibold text-white hover:bg-white/10 transition-colors">
+                    {t.cta.label} →
+                  </button>
+                )}
+              </div>
+              <button type="button" aria-label="Cerrar" onClick={() => onDismiss(t.id)}
+                className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[0.6875rem] font-semibold text-gray-400 hover:bg-white/10 hover:text-white transition-colors">
+                ✕
+              </button>
             </div>
-            <button
-              type="button"
-              aria-label="Cerrar"
-              onClick={() => onDismiss(t.id)}
-              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[0.6875rem] font-semibold hover:bg-white/10"
-            >
-              ✕
-            </button>
           </div>
+        );
+      })}
+      <style>{`@keyframes slideNotif { from { opacity:0; transform:translateY(-16px) scale(0.97);} to { opacity:1; transform:translateY(0) scale(1);} }`}</style>
+    </div>
+  );
+}
+
+function NotificationCenter({ prefs, onChange, unseenCount }: {
+  prefs: NotifPrefs;
+  onChange: (p: NotifPrefs) => void;
+  unseenCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const allOn = Object.values(prefs).every(Boolean);
+  const rows: { key: keyof NotifPrefs; label: string; icon: string }[] = [
+    { key: "bikes",      label: "Bicis TUeBICI",       icon: "🚲" },
+    { key: "parking",    label: "Parkings públicos",   icon: "🅿️" },
+    { key: "incidents",  label: "Incidencias y obras", icon: "🚧" },
+    { key: "airQuality", label: "Calidad del aire",    icon: "💨" },
+  ];
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)} aria-label="Centro de notificaciones"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-gray-950/70 backdrop-blur-xl shadow-lg transition-all hover:scale-110 hover:bg-gray-800/80 active:scale-95">
+        {allOn ? <Bell className="h-5 w-5 text-white" /> : <BellOff className="h-5 w-5 text-gray-400" />}
+        {unseenCount > 0 && Object.values(prefs).some(Boolean) && (
+          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[0.55rem] font-bold text-white shadow-md animate-bounce">
+            {unseenCount > 9 ? "9+" : unseenCount}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div style={{ animation: "slideNotif 0.25s cubic-bezier(0.16,1,0.3,1)" }}
+          className="absolute right-0 top-12 z-50 w-72 rounded-2xl border border-white/10 bg-gray-950/90 p-4 shadow-2xl backdrop-blur-2xl">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[0.7rem] font-bold uppercase tracking-widest text-gray-400">Notificaciones</p>
+            <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-1 text-gray-500 hover:text-white transition-colors"><X className="h-4 w-4" /></button>
+          </div>
+          <button type="button"
+            onClick={() => { const n = !allOn; onChange({ bikes: n, parking: n, incidents: n, airQuality: n }); }}
+            className={`mb-3 flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${allOn ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-white/10 bg-white/5 text-gray-400"}`}>
+            <span>{allOn ? "Todo activado" : "Todo desactivado"}</span>
+            <span className={`h-5 w-9 rounded-full relative transition-colors ${allOn ? "bg-emerald-500" : "bg-gray-700"}`}>
+              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${allOn ? "translate-x-4" : "translate-x-0.5"}`} />
+            </span>
+          </button>
+          <div className="flex flex-col gap-1.5">
+            {rows.map(({ key, label, icon }) => {
+              const on = prefs[key];
+              return (
+                <button key={String(key)} type="button" onClick={() => onChange({ ...prefs, [key]: !on })}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs font-medium transition-all ${on ? "border-sky-500/25 bg-sky-500/10 text-sky-200" : "border-white/10 bg-white/5 text-gray-500"}`}>
+                  <span className="flex items-center gap-2"><span>{icon}</span><span>{label}</span></span>
+                  <span className={`h-4 w-8 rounded-full relative transition-colors ${on ? "bg-sky-500" : "bg-gray-700"}`}>
+                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[0.6rem] text-gray-600 text-center">Las alertas desactivadas no interrumpirán tu experiencia.</p>
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
 function MapExperience() {
-  const { theme, setTheme, mapStyleUrl, routeLineColor } = useAppTheme();
+  const { theme, setTheme, mapStyleUrl } = useAppTheme();
   const [bundle, setBundle] = useState<MapDataBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>("PRISA");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const routeLineColor = profile 
+    ? ROUTE_LINE_BY_PROFILE[profile] 
+    : ROUTE_LINE_BY_THEME[theme];
   const [manualRouteId, setManualRouteId] = useState<string | null>(null);
   const [destination, setDestination] = useState<Destination | null>(null);
   const [generatedCandidates, setGeneratedCandidates] = useState<RouteCandidate[]>([]);
@@ -120,12 +197,43 @@ function MapExperience() {
   const [selectedBikeStation, setSelectedBikeStation] = useState<BikeStationLite | null>(null);
   const [selectedBusStopForAgent, setSelectedBusStopForAgent] = useState<{id: string, name: string} | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [unseenCount, setUnseenCount] = useState(0);
+  const [notifPrefs, setNotifPrefs] = useState<NotifPrefs>({ bikes: true, parking: true, incidents: true, airQuality: true });
+  const notifPrefsRef = useRef<NotifPrefs>(notifPrefs);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [incidentsData, setIncidentsData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [airQualityData, setAirQualityData] = useState<any>(null);
   const [activeRide, setActiveRide] = useState<{
     fromStationId: string;
     batteryPct: number;
     startedAt: number;
   } | null>(null);
+  const [selectedEcoBusType, setSelectedEcoBusType] = useState<"ELECTRICO" | "HIBRIDO" | null>(null);
+  const [ecoRewardMessage, setEcoRewardMessage] = useState<string | null>(null);
+  const [ecoRewardTotalPoints, setEcoRewardTotalPoints] = useState<number | null>(null);
   const lowBatteryNotifiedRef = useRef(false);
+
+  const pushToast = useCallback((t: Omit<Toast, "id">, gate: keyof NotifPrefs) => {
+    if (!notifPrefsRef.current[gate]) return "";
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((prev) => [{ id, ...t }, ...prev].slice(0, 4));
+    setUnseenCount((c) => c + 1);
+    window.setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 10000);
+    return id;
+  }, []);
+
+  useEffect(() => {
+    notifPrefsRef.current = notifPrefs;
+    if (!Object.values(notifPrefs).some(Boolean)) {
+      setToasts([]);
+      setUnseenCount(0);
+    }
+  }, [notifPrefs]);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
   const [layers, setLayers] = useState<MapLayerVisibility>({
     buses: true,
     bikes: true,
@@ -135,8 +243,6 @@ function MapExperience() {
     incidents: true,
   });
   
-  const [incidentsData, setIncidentsData] = useState<any>(null);
-  const [airQualityData, setAirQualityData] = useState<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,31 +281,65 @@ function MapExperience() {
       if (!cancelled) setAirQualityData(d);
     }).catch(console.error);
 
+    fetch('/api/santander/incidents').then(r => r.json()).then(d => { if (!cancelled) setIncidentsData(d); }).catch(console.error);
+    fetch('/api/santander/air-quality').then(r => r.json()).then(d => { if (!cancelled) setAirQualityData(d); }).catch(console.error);
+
+    type SmartScheduledAlert = Omit<Toast, "id"> & { gate: keyof NotifPrefs };
+    const smartAlerts: SmartScheduledAlert[] = [
+      {
+        gate: "bikes",
+        kind: "critical",
+        title: "🚨 Estación TUeBICI casi vacía",
+        detail: "'Intercambiador Sardinero' solo le quedan 2 bicis. ¡Cógela antes de que se acaben!",
+      },
+      {
+        gate: "parking",
+        kind: "warning",
+        title: "🅿️ Parking Alfonso XIII: 8 plazas",
+        detail: "Ocupación al 97%. Dirígete a Numancia, todavía tiene espacio.",
+      },
+      {
+        gate: "incidents",
+        kind: "info",
+        title: "🚧 Incidencia en vía pública",
+        detail: "Corte en Calle Burgos por evento deportivo hasta las 20:30 h.",
+      },
+      {
+        gate: "bikes",
+        kind: "success",
+        title: "✅ Estación Sardinero repuesta",
+        detail: "Un operario ha recargado 14 bicis. ¡Ya están disponibles!",
+      },
+      {
+        gate: "airQuality",
+        kind: "warning",
+        title: "💨 Pico de NO2 en Cuatro Caminos",
+        detail: "AQI 98. Activa el perfil ECO para rutas más limpias.",
+      },
+    ];
+    let alertIdx = 0;
+    const fireNextAlert = () => {
+      if (cancelled) return;
+      const al = smartAlerts[alertIdx % smartAlerts.length];
+      const { gate, ...toast } = al;
+      pushToast(toast, gate);
+      alertIdx++;
+      window.setTimeout(fireNextAlert, 22000);
+    };
+    const alertTimer = window.setTimeout(fireNextAlert, 8000);
+
     return () => {
       cancelled = true;
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-      }
+      window.clearTimeout(alertTimer);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setManualRouteId(null);
   }, [profile]);
-
-  const pushToast = useCallback((t: Omit<Toast, "id">) => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const next: Toast = { id, ...t };
-    setToasts((prev) => [next, ...prev].slice(0, 4));
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((x) => x.id !== id));
-    }, 8000);
-    return id;
-  }, []);
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
 
   useEffect(() => {
     if (!activeRide) return;
@@ -222,13 +362,17 @@ function MapExperience() {
     }
     if (activeRide.batteryPct <= 25 && !lowBatteryNotifiedRef.current) {
       lowBatteryNotifiedRef.current = true;
-      pushToast({
-        kind: "warning",
-        title: "Batería baja",
-        detail: `Tu e-bike está al ${activeRide.batteryPct}%. Te conviene ir hacia una estación con docks libres.`,
-      });
+      pushToast(
+        {
+          kind: "warning",
+          title: "Batería baja",
+          detail: `Tu e-bike está al ${activeRide.batteryPct}%. Te conviene ir hacia una estación con docks libres.`,
+        },
+        "bikes",
+      );
     }
-  }, [activeRide, pushToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRide]);
 
 
 
@@ -258,8 +402,8 @@ function MapExperience() {
       if (!token) throw new Error("Falta el token de Mapbox");
 
       // Usar la ubicación ya rastreada si está disponible, si no, fallback al origen por defecto
-      let originLng = userLocation?.lng ?? -3.80998;
-      let originLat = userLocation?.lat ?? 43.46231;
+      const originLng = userLocation?.lng ?? -3.80998;
+      const originLat = userLocation?.lat ?? 43.46231;
 
       const destLng = targetDest.coordinates[0];
       const destLat = targetDest.coordinates[1];
@@ -287,6 +431,7 @@ function MapExperience() {
               // Simplistic intersection checking for each coordinate point
               coords.forEach((coord) => {
                  if (airQualityData?.features) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     airQualityData.features.forEach((f: any) => {
                        const dist = haversineMeters({lng: coord[0], lat: coord[1]}, {lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1]});
                        if (dist < 200) { // within 200 meters of sensor
@@ -295,6 +440,7 @@ function MapExperience() {
                     });
                  }
                  if (incidentsData?.features) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     incidentsData.features.forEach((f: any) => {
                        const dist = haversineMeters({lng: coord[0], lat: coord[1]}, {lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1]});
                        if (dist < 100) { // Route passes very close to an incident
@@ -354,9 +500,9 @@ function MapExperience() {
     generateRouteWithDestination(destination);
   };
 
-  const candidates = generatedCandidates.length > 0 
+  const candidates = useMemo(() => generatedCandidates.length > 0 
     ? generatedCandidates 
-    : (bundle?.routes.items ?? []);
+    : (bundle?.routes.items ?? []), [generatedCandidates, bundle]);
 
   const ranked = useMemo(
     () => scoreAllCandidates(candidates, profile),
@@ -387,15 +533,37 @@ function MapExperience() {
     if (!c) return;
     const leg = c.legs[0];
     if (!leg) return;
+    const isEcoTrip =
+      (profile === "ECO" && leg.mode !== "bus") ||
+      (leg.mode === "bus" && selectedEcoBusType !== null);
+    const bonusEcoPoints = isEcoTrip ? 50 : 0;
     logTrip({
       mode: leg.mode as TripMode,
       distanceKm: leg.distanceKm,
       durationMinutes: leg.durationMinutes,
       co2Grams: c.metrics.estimatedCo2Grams,
+      bonusEcoPoints,
       destination: destination?.name ?? "Destino",
     });
+    if (bonusEcoPoints > 0) {
+      const updatedStats = getStats();
+      setEcoRewardTotalPoints(updatedStats.totalEcoPoints);
+      const busInfo = leg.mode === "bus" && selectedEcoBusType ? ` (${selectedEcoBusType})` : "";
+      setEcoRewardMessage(`Viaje ECO confirmado${busInfo}. ¡Has ganado +50 puntos!`);
+      pushToast(
+        {
+          kind: "success",
+          title: "Viaje ECO confirmado",
+          detail: `+50 puntos eco añadidos. Tus puntos acumulados (${updatedStats.totalEcoPoints}) podrán canjearse próximamente por minutos gratis en TUeBICI.`,
+        },
+        "airQuality",
+      );
+    } else {
+      setEcoRewardMessage(null);
+      setEcoRewardTotalPoints(null);
+    }
     setSustainKey((k) => k + 1);
-  }, [candidates, destination]);
+  }, [candidates, destination, profile, pushToast, selectedEcoBusType]);
 
   const busGeoJSON = useMemo(
     () => (bundle ? busStopsToGeoJSON(bundle.busStops.items) : null),
@@ -412,10 +580,6 @@ function MapExperience() {
   const bikeLanesGeoJSON = bundle?.bikeLanes ?? null;
 
   const activeScore = ranked.find((s) => s.candidate.id === selectedId);
-
-  const isEcoProfile = profile === "ECO";
-  const isEcoFriendly = activeScore?.candidate.legs.every((l) => l.mode === "walking" || l.mode === "cycling");
-  const earnedPoints = isEcoProfile && isEcoFriendly ? 50 : 0;
 
   const busStopsForInput = useMemo(() => {
     if (!bundle) return [];
@@ -440,11 +604,14 @@ function MapExperience() {
   const handlePickup = useCallback(() => {
     if (!selectedBikeStation) return;
     if (selectedBikeStation.availableBikes <= 0) {
-      pushToast({
-        kind: "warning",
-        title: "No hay bicis disponibles",
-        detail: `La estación “${selectedBikeStation.name}” no tiene e-bikes ahora mismo.`,
-      });
+      pushToast(
+        {
+          kind: "warning",
+          title: "No hay bicis disponibles",
+          detail: `La estación “${selectedBikeStation.name}” no tiene e-bikes ahora mismo.`,
+        },
+        "bikes",
+      );
       return;
     }
 
@@ -457,11 +624,14 @@ function MapExperience() {
       batteryPct: battery,
       startedAt: Date.now(),
     });
-    pushToast({
-      kind: battery <= 25 ? "warning" : "success",
-      title: `E-bike desbloqueada (${battery}%)`,
-      detail: battery <= 25 ? "Ojo: batería baja. Te avisaremos si necesitas cambiar de estación." : "Listo. Buen viaje.",
-    });
+    pushToast(
+      {
+        kind: battery <= 25 ? "warning" : "success",
+        title: `E-bike desbloqueada (${battery}%)`,
+        detail: battery <= 25 ? "Ojo: batería baja. Te avisaremos si necesitas cambiar de estación." : "Listo. Buen viaje.",
+      },
+      "bikes",
+    );
   }, [pushToast, selectedBikeStation]);
 
   const handleReturn = useCallback(() => {
@@ -469,11 +639,14 @@ function MapExperience() {
 
     if (selectedBikeStation.availableDocks > 0) {
       setActiveRide(null);
-      pushToast({
-        kind: "success",
-        title: "Bici devuelta",
-        detail: `Devolución OK en “${selectedBikeStation.name}”.`,
-      });
+      pushToast(
+        {
+          kind: "success",
+          title: "Bici devuelta",
+          detail: `Devolución OK en “${selectedBikeStation.name}”.`,
+        },
+        "bikes",
+      );
       return;
     }
 
@@ -484,23 +657,29 @@ function MapExperience() {
     );
 
     if (!nearest) {
-      pushToast({
-        kind: "warning",
-        title: "Estación llena",
-        detail: `No hay docks libres cerca de “${selectedBikeStation.name}”. Prueba otra zona.`,
-      });
+      pushToast(
+        {
+          kind: "warning",
+          title: "Estación llena",
+          detail: `No hay docks libres cerca de “${selectedBikeStation.name}”. Prueba otra zona.`,
+        },
+        "bikes",
+      );
       return;
     }
 
-    pushToast({
-      kind: "warning",
-      title: "Estación llena",
-      detail: `“${selectedBikeStation.name}” está completa. Alternativa: “${nearest.station.name}” (${formatMeters(nearest.distanceMeters)}).`,
-      cta: {
-        label: "Ir a la alternativa",
-        destination: { lng: nearest.station.lng, lat: nearest.station.lat, name: nearest.station.name },
+    pushToast(
+      {
+        kind: "warning",
+        title: "Estación llena",
+        detail: `“${selectedBikeStation.name}” está completa. Alternativa: “${nearest.station.name}” (${formatMeters(nearest.distanceMeters)}).`,
+        cta: {
+          label: "Ir a la alternativa",
+          destination: { lng: nearest.station.lng, lat: nearest.station.lat, name: nearest.station.name },
+        },
       },
-    });
+      "bikes",
+    );
   }, [bikeStationsLite, pushToast, selectedBikeStation]);
 
   return (
@@ -526,11 +705,14 @@ function MapExperience() {
             setSelectedBikeStation(s);
             const from = userLocation ? { lng: userLocation.lng, lat: userLocation.lat } : null;
             const d = from ? haversineMeters(from, s) : null;
-            pushToast({
-              kind: "info",
-              title: `Estación: ${s.name}`,
-              detail: `${s.availableBikes} bicis · ${s.availableDocks} docks` + (d ? ` · a ${formatMeters(d)}` : ""),
-            });
+            pushToast(
+              {
+                kind: "info",
+                title: `Estación: ${s.name}`,
+                detail: `${s.availableBikes} bicis · ${s.availableDocks} docks` + (d ? ` · a ${formatMeters(d)}` : ""),
+              },
+              "bikes",
+            );
           }}
           userLocation={userLocation}
         />
@@ -551,15 +733,20 @@ function MapExperience() {
             </h1>
           </div>
 
-          {/* Selector de temas centrado */}
-          <div className="pointer-events-auto flex items-center justify-center">
+          {/* Notification Centre + Theme Switcher (top right) */}
+          <div className="pointer-events-auto absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex items-center gap-2 sm:right-5">
+            <NotificationCenter
+              prefs={notifPrefs}
+              onChange={(p: NotifPrefs) => { setNotifPrefs(p); setUnseenCount(0); }}
+              unseenCount={unseenCount}
+            />
             <ThemeSwitcher value={theme} onChange={setTheme} />
           </div>
         </header>
 
         <div className="min-h-0 flex-1" aria-hidden />
 
-        <div className="pointer-events-auto mt-auto w-full min-w-0 max-w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 md:absolute md:bottom-4 md:left-4 md:mt-0 md:max-w-md md:px-0 md:pb-0 lg:max-w-lg transition-all duration-500 ease-in-out">
+        <div className="pointer-events-auto mt-auto w-full min-w-0 max-w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 md:absolute md:bottom-4 md:left-4 md:mt-0 md:max-w-lg md:px-0 md:pb-0 lg:max-w-2xl transition-all duration-500 ease-in-out">
           <div className="flex justify-end mb-2">
             <button 
               onClick={() => setIsPanelExpanded(!isPanelExpanded)}
@@ -570,7 +757,7 @@ function MapExperience() {
             </button>
           </div>
           
-          <div className={`overflow-y-auto rounded-3xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)]/90 shadow-[0_-8px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:rounded-2xl md:shadow-2xl transition-all duration-500 origin-bottom ease-in-out ${isPanelExpanded ? 'max-h-[min(52dvh,28rem)] md:max-h-none opacity-100 scale-100 translate-y-0' : 'max-h-0 opacity-0 scale-95 translate-y-4 overflow-hidden border-none shadow-none py-0'}`}>
+          <div className={`overflow-y-auto rounded-3xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)]/90 shadow-[0_-8px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:rounded-2xl md:shadow-2xl transition-all duration-500 origin-bottom ease-in-out ${isPanelExpanded ? 'max-h-[min(44dvh,22rem)] md:max-h-[min(65dvh,36rem)] opacity-100 scale-100 translate-y-0' : 'max-h-0 opacity-0 scale-95 translate-y-4 overflow-hidden border-none shadow-none py-0'}`}>
             <div className="mx-auto flex flex-col gap-4 p-4 sm:p-5">
               {loadError ? (
                 <p className="text-sm text-red-400">{loadError}</p>
@@ -678,6 +865,7 @@ function MapExperience() {
                     userLocation={userLocation}
                     onAutoRoute={handleStopSelect}
                     onUpdateProfile={setProfile}
+                    onSelectEcoBusType={setSelectedEcoBusType}
                     isOpen={isAgentOpen}
                     onToggle={setIsAgentOpen}
                     selectedBusStop={selectedBusStopForAgent}
@@ -695,11 +883,14 @@ function MapExperience() {
                         </span>
                       </p>
                       
-                      {earnedPoints > 0 && (
-                        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-emerald-500 border border-emerald-500/20 w-max">
+                      {ecoRewardMessage && ecoRewardTotalPoints !== null && (
+                        <div className="mt-2 flex max-w-full flex-col gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1.5 text-emerald-500">
                           <Leaf className="h-4 w-4" />
                           <span className="text-[0.75rem] font-bold">
-                            + {earnedPoints} Puntos Eco ganados
+                            {ecoRewardMessage}
+                          </span>
+                          <span className="text-[0.6875rem] text-emerald-600/90">
+                            Tus puntos acumulados ({ecoRewardTotalPoints}) podr&aacute;n canjearse pr&oacute;ximamente por minutos gratis en TUeBICI.
                           </span>
                         </div>
                       )}
@@ -718,6 +909,7 @@ function MapExperience() {
          userLocation={userLocation}
          onAutoRoute={handleStopSelect}
          onUpdateProfile={setProfile}
+         onSelectEcoBusType={setSelectedEcoBusType}
          hideFab={isPanelExpanded}
          isOpen={isAgentOpen}
          onToggle={setIsAgentOpen}

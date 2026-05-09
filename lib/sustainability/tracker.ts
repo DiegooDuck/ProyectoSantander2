@@ -18,6 +18,7 @@ export type TripRecord = {
   co2Grams: number;           // CO2 real de esta ruta
   co2SavedGrams: number;      // CO2 ahorrado vs coche (baseline)
   ecoPoints: number;
+  bonusEcoPoints?: number;
   destination: string;
 };
 
@@ -114,10 +115,16 @@ export function calculateCo2Saved(mode: TripMode, distanceKm: number, actualCo2G
 /**
  * Registra un viaje completado.
  */
-export function logTrip(trip: Omit<TripRecord, "id" | "timestamp" | "ecoPoints" | "co2SavedGrams">): TripRecord {
+export function logTrip(
+  trip: Omit<TripRecord, "id" | "timestamp" | "ecoPoints" | "co2SavedGrams"> & {
+    bonusEcoPoints?: number;
+  }
+): TripRecord {
   const store = readStore();
 
-  const ecoPoints = calculateEcoPoints(trip.mode, trip.distanceKm);
+  const baseEcoPoints = calculateEcoPoints(trip.mode, trip.distanceKm);
+  const bonusEcoPoints = Math.max(0, Math.round(trip.bonusEcoPoints ?? 0));
+  const ecoPoints = baseEcoPoints + bonusEcoPoints;
   const co2SavedGrams = calculateCo2Saved(trip.mode, trip.distanceKm, trip.co2Grams);
 
   const record: TripRecord = {
@@ -125,6 +132,7 @@ export function logTrip(trip: Omit<TripRecord, "id" | "timestamp" | "ecoPoints" 
     id: `trip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     timestamp: new Date().toISOString(),
     ecoPoints,
+    bonusEcoPoints,
     co2SavedGrams,
   };
 
@@ -187,7 +195,7 @@ function computeStreak(trips: TripRecord[]): { current: number; best: number } {
   // Calcular racha actual (desde hoy hacia atrás)
   const today = new Date().toISOString().slice(0, 10);
   let current = 0;
-  let checkDate = new Date(today);
+  const checkDate = new Date(today);
 
   for (let i = 0; i < 365; i++) {
     const dateStr = checkDate.toISOString().slice(0, 10);

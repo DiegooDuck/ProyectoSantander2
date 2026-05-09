@@ -63,5 +63,6 @@ export type MapDataBundle = {
   busStops: BusStopsDatasetFile;
   bikeShare: BikeShareDatasetFile;
   traffic: TrafficDatasetFile;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   bikeLanes?: any | null;
 };

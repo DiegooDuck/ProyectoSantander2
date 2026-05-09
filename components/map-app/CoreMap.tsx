@@ -76,6 +76,18 @@ export function CoreMap({
   const [mapReady, setMapReady] = useState(false);
   const [hasCenteredOnUser, setHasCenteredOnUser] = useState(false);
   const [selectedBusPopup, setSelectedBusPopup] = useState<{lng: number, lat: number, name: string, lines?: string} | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const dashOffsetRef = useRef(0);
+
+  const showRoute = Boolean(routeGeoJSON?.features.length);
+  const showBus =
+    layers.buses && Boolean(busGeoJSON?.features.length);
+  const showBike =
+    layers.bikes && Boolean(bikeGeoJSON?.features.length);
+  const showBikeLanes =
+    layers.bikes && Boolean(bikeLanesGeoJSON?.features.length);
+  const showTraffic =
+    layers.traffic && Boolean(trafficGeoJSON?.features.length);
 
   useEffect(() => {
     if (!mapReady || !userLocation || hasCenteredOnUser) return;
@@ -115,6 +127,31 @@ export function CoreMap({
   }, [routeGeoJSON, mapReady, fitRoute]);
 
   const onLoad = useCallback(() => setMapReady(true), []);
+
+  useEffect(() => {
+    if (!mapReady || !showRoute) return;
+    
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const animate = () => {
+      dashOffsetRef.current = (dashOffsetRef.current + 0.3) % 8;
+      try {
+        (map as any).setPaintProperty('sr-route-animated', 'line-dashoffset', dashOffsetRef.current);
+      } catch (e) {
+        // Layer might not exist yet
+      }
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    animationFrameRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [mapReady, showRoute]);
 
   const onMapClick = useCallback((event: mapboxgl.MapLayerMouseEvent) => {
     const features = event.features;
@@ -172,16 +209,6 @@ export function CoreMap({
       </div>
     );
   }
-
-  const showRoute = Boolean(routeGeoJSON?.features.length);
-  const showBus =
-    layers.buses && Boolean(busGeoJSON?.features.length);
-  const showBike =
-    layers.bikes && Boolean(bikeGeoJSON?.features.length);
-  const showBikeLanes =
-    layers.bikes && Boolean(bikeLanesGeoJSON?.features.length);
-  const showTraffic =
-    layers.traffic && Boolean(trafficGeoJSON?.features.length);
 
   return (
     <div className={`relative h-full w-full min-h-0 overflow-hidden ${className ?? ""}`}>
@@ -260,7 +287,7 @@ export function CoreMap({
                   10, 8,
                   15, 20
                 ],
-                "circle-color": "#0ea5e9", // cyan-500
+                "circle-color": "#0ea5e9",
                 "circle-blur": 0.8,
                 "circle-opacity": 0.7,
               }}
@@ -274,9 +301,9 @@ export function CoreMap({
                   10, 4,
                   15, 12
                 ],
-                "circle-color": "#f0f9ff", // sky-50
+                "circle-color": "#f0f9ff",
                 "circle-stroke-width": 2,
-                "circle-stroke-color": "#0284c7", // sky-600
+                "circle-stroke-color": "#0284c7",
                 "circle-opacity": 0.9,
               }}
             />
@@ -339,6 +366,16 @@ export function CoreMap({
         {showRoute ? (
           <Source id={SRC_ROUTE} type="geojson" data={routeGeoJSON!}>
             <Layer
+              id="sr-route-bg"
+              type="line"
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{
+                "line-color": routeLineColor,
+                "line-width": 8,
+                "line-opacity": 0.3,
+              }}
+            />
+            <Layer
               id="sr-route-line"
               type="line"
               layout={{ "line-cap": "round", "line-join": "round" }}
@@ -346,6 +383,18 @@ export function CoreMap({
                 "line-color": routeLineColor,
                 "line-width": 6,
                 "line-opacity": 0.95,
+              }}
+            />
+            <Layer
+              id="sr-route-animated"
+              type="line"
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{
+                "line-color": "#ffffff",
+                "line-width": 4,
+                "line-opacity": 0.8,
+                "line-dasharray": [0, 4, 4, 0],
+                // line-dashoffset is set dynamically via setPaintProperty
               }}
             />
           </Source>
@@ -358,19 +407,15 @@ export function CoreMap({
             anchor="bottom"
           >
             <div className="relative flex items-center justify-center">
-              {/* Efecto de pulso/onda expansiva */}
               <div className="absolute h-12 w-12 animate-ping rounded-full bg-indigo-500/30"></div>
               <div className="absolute h-8 w-8 animate-pulse rounded-full bg-indigo-500/50"></div>
               
-              {/* Personaje / Icono */}
               <div className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-indigo-600 text-white shadow-xl transition-transform hover:scale-110">
                 <User className="h-6 w-6" />
                 
-                {/* Indicador de dirección sutil */}
                 <div className="absolute -top-1 right-0 h-3 w-3 rounded-full border border-white bg-emerald-400"></div>
               </div>
               
-              {/* Sombra proyectada */}
               <div className="absolute -bottom-1 h-2 w-6 rounded-[100%] bg-black/20 blur-[2px]"></div>
             </div>
           </Marker>

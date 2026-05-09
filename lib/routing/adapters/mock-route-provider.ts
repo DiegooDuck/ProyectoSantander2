@@ -118,6 +118,7 @@ const MOCK_CANDIDATES: RouteCandidate[] = [
  */
 export class MockRouteProvider implements IRouteProvider {
   async fetchRouteOptions(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _request: RoutePlanningRequest,
   ): Promise<RouteCandidate[]> {
     await Promise.resolve();

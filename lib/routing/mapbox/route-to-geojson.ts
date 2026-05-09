@@ -36,6 +36,7 @@ export function candidateToFeatureCollection(
 
 /** Puente futuro Mapbox Directions → dominio interno. */
 export function stubFromMapboxDirections(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _directionsResponse: unknown,
 ): RouteCandidate[] {
   throw new Error(

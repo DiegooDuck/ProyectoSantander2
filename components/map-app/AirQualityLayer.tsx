@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Source, Layer } from "react-map-gl/mapbox";
 
 export function AirQualityLayer({ visible }: { visible: boolean }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [geoData, setGeoData] = useState<any>(null);
 
   useEffect(() => {

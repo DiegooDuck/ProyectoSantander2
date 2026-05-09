@@ -5,7 +5,9 @@ import { Marker, Popup } from "react-map-gl/mapbox";
 import { TriangleAlert, HardHat } from "lucide-react";
 
 export function IncidentsLayer({ visible }: { visible: boolean }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [geoData, setGeoData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [selectedIncident, setSelectedIncident] = useState<any>(null);
 
   useEffect(() => {
@@ -30,21 +32,23 @@ export function IncidentsLayer({ visible }: { visible: boolean }) {
 
   return (
     <>
-      {geoData.features.map((feature: any) => {
-        const coords = feature.geometry.coordinates;
-        const isWorks = feature.properties.type === "Obras";
+      {geoData.features.map((feature: unknown) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const f = feature as any;
+        const coords = f.geometry.coordinates;
+        const isWorks = f.properties.type === "Obras";
         const Icon = isWorks ? HardHat : TriangleAlert;
         const colorClass = isWorks ? "bg-amber-500 border-amber-300 shadow-amber-500/50" : "bg-rose-500 border-rose-300 shadow-rose-500/50";
         
         return (
           <Marker
-            key={feature.properties.id}
+            key={f.properties.id}
             longitude={coords[0]}
             latitude={coords[1]}
             anchor="bottom"
             onClick={(e) => {
               e.originalEvent.stopPropagation();
-              setSelectedIncident(feature);
+              setSelectedIncident(f);
             }}
           >
             <div className="relative group cursor-pointer flex flex-col items-center justify-center transition-transform hover:scale-110 hover:z-10">

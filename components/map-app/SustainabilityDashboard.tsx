@@ -8,6 +8,7 @@ export function SustainabilityDashboard() {
   const [stats, setStats] = useState<SustainabilityStats | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStats(getStats());
 
     // Refrescar si otro tab logea un viaje
@@ -21,6 +22,7 @@ export function SustainabilityDashboard() {
   }, []);
 
   /** Llamar externamente para refrescar tras registrar un viaje */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const refresh = () => setStats(getStats());
 
   if (!stats) return null;

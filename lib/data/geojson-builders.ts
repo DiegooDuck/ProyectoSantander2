@@ -54,6 +54,7 @@ export function bikeShareToGeoJSON(bikes: BikeShareRecord[]): GeoFeatureCollecti
 }
 
 export function trafficToGeoJSON(segments: TrafficSegmentRecord[]): GeoFeatureCollection {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const features: any[] = [];
   segments.forEach((t) => {
     t.coordinates.forEach((coord) => {

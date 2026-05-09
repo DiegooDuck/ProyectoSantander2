@@ -18,6 +18,7 @@ export async function POST(req: Request) {
           let totalCapacity = 0;
           const fuelTypes: Record<string, number> = {};
           
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           vehicles.forEach((v: any) => {
             const seats = parseInt(v["ayto:PlazasSentadas"]) || 0;
             const standing = parseInt(v["ayto:PlazasDePie"]) || 0;
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
             reply: `Actualmente Santander cuenta con ${totalVehicles} autobuses. Un ${ecoPct}% de la flota es ECO (Híbridos/Eléctricos) y un ${dieselPct}% es Diesel. La capacidad total es de aprox. ${totalCapacity.toLocaleString()} pasajeros.` 
           });
         }
-      } catch (err) {
+      } catch {
         return NextResponse.json({ reply: "No pude acceder a los datos de la flota en este momento." });
       }
     }
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
             reply: `He encontrado ${count} paradas de autobús en Santander. Puedes verlas todas activando la capa de 'Autobuses' en el mapa.` 
           });
         }
-      } catch (err) {
+      } catch {
         return NextResponse.json({ reply: "Lo siento, no pude obtener información sobre las paradas." });
       }
     }
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ 
           reply: `Basado en los datos de tráfico actuales, las zonas con mayor potencial de contaminación por emisiones son:\n\n${summary}\n\nTe recomiendo usar rutas 'ECO' o moverte en bicicleta por estas zonas para ayudar a reducir el impacto ambiental. 🌍` 
         });
-      } catch (err) {
+      } catch {
         return NextResponse.json({ reply: "No tengo datos actualizados sobre la calidad del aire en este momento." });
       }
     }

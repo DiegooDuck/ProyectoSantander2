@@ -21,3 +21,10 @@ export const ROUTE_LINE_BY_THEME: Record<AppThemeId, string> = {
   illuminated: "#7c3aed",
   satellite: "#fbbf24",
 };
+
+/** Color de la línea de ruta según el perfil seleccionado. */
+export const ROUTE_LINE_BY_PROFILE: Record<string, string> = {
+  PRISA: "#f97316",
+  ECO: "#10b981",
+  SEGURIDAD: "#8b5cf6",
+};

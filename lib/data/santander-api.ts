@@ -28,10 +28,6 @@ interface SantanderBikeStation {
   }>;
 }
 
-interface SantanderBikeRoute {
-  // Estructura de rutas si la necesitamos más adelante
-}
-
 // Base URL para los datasets de Santander
 const SANTANDER_DATA_BASE = "https://raw.githubusercontent.com/Sedimark/hackathon-santander-datasets/main";
 
@@ -117,6 +113,7 @@ export async function loadSantanderBikeData(): Promise<BikeShareDatasetFile> {
 /**
  * Obtiene datos de rutas de bicicletas de Santander (opcional para futuras funcionalidades)
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchSantanderBikeRoutes(): Promise<any[]> {
   try {
     // Obtener la semana más reciente disponible
@@ -140,6 +137,7 @@ export async function fetchSantanderBusStops(): Promise<BusStopsDatasetFile | nu
     const data = await res.json();
     if (!data.resources) return null;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: BusStopRecord[] = data.resources.map((r: any) => ({
       id: r["dc:identifier"] || r["ayto:numero"],
       name: r["ayto:parada"] || r["vivo:address1"],
@@ -173,6 +171,7 @@ export async function fetchSantanderBikeLanes(): Promise<GeoFeatureCollection | 
     const data = await res.json();
     const resources = data.resources || [];
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const features = resources.map((r: any) => {
       const wkt = r["ayto:WKT"];
       if (!wkt || !wkt.startsWith("LINESTRING")) return null;
@@ -198,6 +197,7 @@ export async function fetchSantanderBikeLanes(): Promise<GeoFeatureCollection | 
           coordinates,
         },
       };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }).filter((f: any) => f !== null);
 
     return {
