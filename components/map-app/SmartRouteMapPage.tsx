@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Leaf, ChevronUp, ChevronDown } from "lucide-react";
 import {
   bikeShareToGeoJSON,
@@ -26,6 +26,8 @@ import { ProfileSelector } from "@/components/routing/ProfileSelector";
 import { DestinationInput, type Destination } from "@/components/routing/DestinationInput";
 import { ThemeProvider, useAppTheme } from "@/components/theme/ThemeProvider";
 import { FleetGuideAgent } from "@/components/map-app/FleetGuideAgent";
+import { SustainabilityDashboard } from "@/components/map-app/SustainabilityDashboard";
+import { logTrip, type TripMode } from "@/lib/sustainability/tracker";
 
 function MapExperience() {
   const { theme, setTheme, mapStyleUrl, routeLineColor } = useAppTheme();
@@ -37,7 +39,9 @@ function MapExperience() {
   const [generatedCandidates, setGeneratedCandidates] = useState<RouteCandidate[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
+  const [isAgentOpen, setIsAgentOpen] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lng: number; lat: number } | null>(null);
+  const [sustainKey, setSustainKey] = useState(0); // bump to refresh dashboard
   const [layers, setLayers] = useState<MapLayerVisibility>({
     buses: true,
     bikes: true,
@@ -83,6 +87,8 @@ function MapExperience() {
   useEffect(() => {
     setManualRouteId(null);
   }, [profile]);
+
+
 
   const handleStopSelect = (lng: number, lat: number, name: string) => {
     const newDest: Destination = {
@@ -197,6 +203,23 @@ function MapExperience() {
     ? candidateToFeatureCollection(selectedCandidate)
     : null;
 
+  /** Registra un viaje en el tracker de sostenibilidad al seleccionar ruta. */
+  const handleSelectAndLog = useCallback((id: string) => {
+    setManualRouteId(id);
+    const c = candidates.find((r) => r.id === id);
+    if (!c) return;
+    const leg = c.legs[0];
+    if (!leg) return;
+    logTrip({
+      mode: leg.mode as TripMode,
+      distanceKm: leg.distanceKm,
+      durationMinutes: leg.durationMinutes,
+      co2Grams: c.metrics.estimatedCo2Grams,
+      destination: destination?.name ?? "Destino",
+    });
+    setSustainKey((k) => k + 1);
+  }, [candidates, destination]);
+
   const busGeoJSON = useMemo(
     () => (bundle ? busStopsToGeoJSON(bundle.busStops.items) : null),
     [bundle],
@@ -209,6 +232,7 @@ function MapExperience() {
     () => (bundle ? trafficToGeoJSON(bundle.traffic.items) : null),
     [bundle],
   );
+  const bikeLanesGeoJSON = bundle?.bikeLanes ?? null;
 
   const activeScore = ranked.find((s) => s.candidate.id === selectedId);
 
@@ -234,6 +258,7 @@ function MapExperience() {
           routeGeoJSON={routeGeoJSON}
           busGeoJSON={busGeoJSON}
           bikeGeoJSON={bikeGeoJSON}
+          bikeLanesGeoJSON={bikeLanesGeoJSON}
           trafficGeoJSON={trafficGeoJSON}
           layers={layers}
           onSelectStop={handleStopSelect}
@@ -307,8 +332,9 @@ function MapExperience() {
                   <RouteOptionStrip
                     ranked={ranked}
                     selectedId={selectedId}
-                    onSelect={(id) => setManualRouteId(id)}
+                    onSelect={handleSelectAndLog}
                     profile={profile}
+                    onOpenAgent={() => setIsAgentOpen(true)}
                   />
 
                   <ProfileSelector
@@ -319,6 +345,16 @@ function MapExperience() {
                   />
 
                   <LayerToggleBar layers={layers} onChange={setLayers} />
+
+                  {/* Smart Agent embebido */}
+                  <FleetGuideAgent
+                    variant="inline"
+                    userLocation={userLocation}
+                    onAutoRoute={handleStopSelect}
+                    onUpdateProfile={setProfile}
+                    isOpen={isAgentOpen}
+                    onToggle={setIsAgentOpen}
+                  />
 
                   {activeScore ? (
                     <div className="rounded-2xl border border-[var(--overlay-border)] bg-[var(--overlay-card)] px-3 py-2.5">
@@ -342,6 +378,9 @@ function MapExperience() {
                       )}
                     </div>
                   ) : null}
+
+                  {/* Dashboard de Sostenibilidad */}
+                  <SustainabilityDashboard key={sustainKey} />
                 </>
               ) : null}
             </div>
@@ -352,6 +391,9 @@ function MapExperience() {
          userLocation={userLocation}
          onAutoRoute={handleStopSelect}
          onUpdateProfile={setProfile}
+         hideFab={isPanelExpanded}
+         isOpen={isAgentOpen}
+         onToggle={setIsAgentOpen}
        />
     </div>
   );

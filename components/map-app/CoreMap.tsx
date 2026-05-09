@@ -7,7 +7,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { User } from "lucide-react";
 import type { RouteFeatureCollection } from "@/lib/routing";
-import type { GeoFeatureCollection } from "@/lib/data";
+import type { GeoFeatureCollection } from "@/lib/data/geojson-builders";
 
 const INITIAL_VIEW = {
   longitude: -3.80998,
@@ -35,6 +35,7 @@ export type CoreMapProps = {
   routeGeoJSON: RouteFeatureCollection | null;
   busGeoJSON: GeoFeatureCollection | null;
   bikeGeoJSON: GeoFeatureCollection | null;
+  bikeLanesGeoJSON: GeoFeatureCollection | null;
   trafficGeoJSON: GeoFeatureCollection | null;
   layers: MapLayerVisibility;
   onSelectStop?: (lng: number, lat: number, name: string) => void;
@@ -48,6 +49,7 @@ export function CoreMap({
   routeGeoJSON,
   busGeoJSON,
   bikeGeoJSON,
+  bikeLanesGeoJSON,
   trafficGeoJSON,
   layers,
   onSelectStop,
@@ -135,6 +137,8 @@ export function CoreMap({
     layers.buses && Boolean(busGeoJSON?.features.length);
   const showBike =
     layers.bikes && Boolean(bikeGeoJSON?.features.length);
+  const showBikeLanes =
+    layers.bikes && Boolean(bikeLanesGeoJSON?.features.length);
   const showTraffic =
     layers.traffic && Boolean(trafficGeoJSON?.features.length);
 
@@ -254,14 +258,38 @@ export function CoreMap({
         {showBike ? (
           <Source id={SRC_BIKE} type="geojson" data={bikeGeoJSON!}>
             <Layer
-              id="sr-bike-circles"
+              id="sr-bike-halo"
               type="circle"
               paint={{
+                "circle-color": "#10b981",
+                "circle-radius": 8,
+                "circle-opacity": 0.2,
+              }}
+            />
+            <Layer
+              id="sr-bike-core"
+              type="circle"
+              paint={{
+                "circle-color": "#10b981",
                 "circle-radius": 5,
-                "circle-color": "#34d399",
-                "circle-opacity": 0.92,
                 "circle-stroke-width": 2,
-                "circle-stroke-color": "#064e3b",
+                "circle-stroke-color": "#ffffff",
+              }}
+            />
+          </Source>
+        ) : null}
+
+        {showBikeLanes ? (
+          <Source id="sr-bike-lanes" type="geojson" data={bikeLanesGeoJSON!}>
+            <Layer
+              id="sr-bike-lanes-line"
+              type="line"
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{
+                "line-color": "#10b981",
+                "line-width": 4,
+                "line-opacity": 0.6,
+                "line-dasharray": [2, 1],
               }}
             />
           </Source>

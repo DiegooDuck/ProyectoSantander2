@@ -63,4 +63,5 @@ export type MapDataBundle = {
   busStops: BusStopsDatasetFile;
   bikeShare: BikeShareDatasetFile;
   traffic: TrafficDatasetFile;
+  bikeLanes?: any | null;
 };

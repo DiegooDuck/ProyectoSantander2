@@ -1,4 +1,5 @@
 import type { BikeShareRecord, BikeShareDatasetFile, DatasetMeta, BusStopRecord, BusStopsDatasetFile } from "./types";
+import type { GeoFeatureCollection } from "./geojson-builders";
 
 // Tipos para los datos del GitHub de Santander
 interface SantanderBikeStation {
@@ -158,6 +159,53 @@ export async function fetchSantanderBusStops(): Promise<BusStopsDatasetFile | nu
     };
   } catch (err) {
     console.error("Error en fetchSantanderBusStops:", err);
+    return null;
+  }
+}
+
+/**
+ * Carga carriles bici desde el proxy de Santander y los transforma a GeoJSON.
+ */
+export async function fetchSantanderBikeLanes(): Promise<GeoFeatureCollection | null> {
+  try {
+    const res = await fetch("/api/santander/bike-lanes");
+    if (!res.ok) throw new Error("Error fetching bike lanes");
+    const data = await res.json();
+    const resources = data.resources || [];
+
+    const features = resources.map((r: any) => {
+      const wkt = r["ayto:WKT"];
+      if (!wkt || !wkt.startsWith("LINESTRING")) return null;
+
+      // Parsear LINESTRING ( X Y, X Y, ... )
+      const coordsMatch = wkt.match(/\((.*)\)/);
+      if (!coordsMatch) return null;
+
+      const coordinates = coordsMatch[1].split(",").map((pair: string) => {
+        const [lng, lat] = pair.trim().split(" ").map(Number);
+        return [lng, lat];
+      });
+
+      return {
+        type: "Feature",
+        properties: {
+          id: r["dc:identifier"],
+          estado: r["ayto:Estado"],
+          modified: r["dc:modified"],
+        },
+        geometry: {
+          type: "LineString",
+          coordinates,
+        },
+      };
+    }).filter((f: any) => f !== null);
+
+    return {
+      type: "FeatureCollection",
+      features,
+    };
+  } catch (error) {
+    console.error("fetchSantanderBikeLanes error:", error);
     return null;
   }
 }

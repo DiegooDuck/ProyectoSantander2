@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Bot, Sparkles, Mic, MicOff, X } from "lucide-react";
+import { Bot, Sparkles, Mic, MicOff, X, RefreshCw, Send, ChevronDown } from "lucide-react";
 import type { UserProfile } from "@/lib/routing";
+import { getStats } from "@/lib/sustainability/tracker";
 
 // Add type for Web Speech API
 declare global {
@@ -33,14 +34,29 @@ export function FleetGuideAgent({
   userLocation,
   onAutoRoute,
   onUpdateProfile,
+  hideFab = false,
+  isOpen: controlledIsOpen,
+  onToggle,
+  variant = "floating",
 }: {
   userLocation?: { lng: number; lat: number } | null;
   onAutoRoute?: (lng: number, lat: number, name: string) => void;
   onUpdateProfile?: (profile: UserProfile | null) => void;
+  hideFab?: boolean;
+  isOpen?: boolean;
+  onToggle?: (open: boolean) => void;
+  variant?: "floating" | "inline";
 }) {
   const [stats, setStats] = useState<FleetStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+
+  // Controlled/uncontrolled pattern
+  const isOpen = controlledIsOpen ?? internalIsOpen;
+  const setIsOpen = (v: boolean) => {
+    setInternalIsOpen(v);
+    onToggle?.(v);
+  };
   const [messages, setMessages] = useState<{ sender: "user" | "agent"; text: string; options?: any }[]>([]);
   const [pendingStop, setPendingStop] = useState<any>(null);
   const [input, setInput] = useState("");
@@ -56,10 +72,9 @@ export function FleetGuideAgent({
   const SUGGESTIONS = [
     { label: "📊 Flota", text: "¿Cómo es la flota de autobuses?" },
     { label: "📍 Paradas", text: "¿Dónde hay paradas de bus?" },
+    { label: "🌱 Sostenibilidad", text: "Dime mi resumen de sostenibilidad y ahorro de CO2" },
     { label: "🏃 Próxima", text: "Busca la parada más cercana y llévame" },
     { label: "🚲 Bicis", text: "¿Dime algo sobre las bicicletas?" },
-    { label: "😷 Polución", text: "¿Qué zonas tienen más contaminación?" },
-    { label: "🚗 Tráfico", text: "¿Cómo está el tráfico ahora?" },
     { label: "👋 Hola", text: "Hola, ¿quién eres?" },
   ];
 
@@ -227,6 +242,22 @@ export function FleetGuideAgent({
       }
       return;
     }
+    const lowered = userText.toLowerCase();
+
+    // Sostenibilidad personal
+    if (lowered.includes("sostenibilidad") || lowered.includes("eco") || lowered.includes("ahorro")) {
+      const sustain = getStats();
+      if (sustain.totalTrips === 0) {
+        setMessages((s) => [...s, { sender: 'agent', text: "Aún no tienes viajes registrados. ¡Empieza a moverte de forma sostenible para ver tu impacto positivo en Santander! 🌱" }]);
+      } else {
+        const co2Kg = (sustain.totalCo2SavedGrams / 1000).toFixed(2);
+        setMessages((s) => [...s, { 
+          sender: 'agent', 
+          text: `¡Estás haciendo un gran trabajo! Has ahorrado **${co2Kg} kg de CO2** en tus últimos viajes. Actualmente eres nivel **${sustain.level.name} ${sustain.level.icon}** con **${sustain.totalEcoPoints} puntos**. ¡Sigue así!` 
+        }]);
+      }
+      return;
+    }
 
     setIsTyping(true);
     try {
@@ -386,8 +417,130 @@ export function FleetGuideAgent({
 
   // keep the floating button visible even while loading; show loading inside panel
 
+  // ── Inline variant: embedded collapsible card ──
+  if (variant === "inline") {
+    return (
+      <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-violet-500/5 overflow-hidden">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex w-full items-center gap-3 p-3 transition-colors hover:bg-indigo-500/10"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+            <Sparkles className="h-4 w-4" />
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-[0.8125rem] font-semibold text-[var(--overlay-text)]">Smart Agent</p>
+            <p className="text-[0.625rem] text-[var(--overlay-text-muted)]">Rutas, flota, tráfico…</p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <ChevronDown className={`h-4 w-4 text-[var(--overlay-text-muted)] transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+
+        <div className={`transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[60vh] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+          <div className="border-t border-indigo-500/10 p-3 flex flex-col gap-3">
+            {/* Suggestions */}
+            <div className="flex flex-wrap gap-1.5">
+              {SUGGESTIONS.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleSendMessage(s.text)}
+                  className="rounded-full border border-indigo-500/20 bg-indigo-500/5 px-2.5 py-1 text-[10px] font-medium text-indigo-600 transition-all hover:bg-indigo-500 hover:text-white dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Chat */}
+            <div className="min-h-[80px] max-h-[28vh] overflow-y-auto rounded-xl bg-black/5 dark:bg-white/5 p-3 flex flex-col gap-2 custom-scrollbar">
+              {messages.length === 0 && (
+                <p className="text-center text-[10px] font-medium text-[var(--overlay-text-muted)] py-2">¿Cómo puedo ayudarte?</p>
+              )}
+              {messages.map((m, idx) => (
+                <div key={idx} className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                  <div className={`max-w-[85%] rounded-xl px-3 py-1.5 text-[0.8125rem] shadow-sm ${
+                    m.sender === 'user'
+                      ? 'bg-indigo-600 text-white rounded-tr-none'
+                      : 'bg-[var(--overlay-card)] text-[var(--overlay-text)] rounded-tl-none border border-white/5'
+                  }`}>
+                    {m.text}
+                  </div>
+                  {m.options && pendingStop && (
+                    <div className="mt-2 flex flex-col gap-2 w-full rounded-xl bg-indigo-500/10 p-3 border border-indigo-500/20">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-indigo-400">Personalizar Ruta</p>
+                      <div className="flex gap-1.5">
+                        {m.options.profiles.map((p: UserProfile) => (
+                          <button
+                            key={p}
+                            onClick={() => {
+                              const mode = (document.getElementById('inline-mode-select') as HTMLSelectElement)?.value || 'walking';
+                              handleOptionSelect(p, mode);
+                            }}
+                            className="flex-1 rounded-lg bg-white/80 dark:bg-white/10 py-1 text-[9px] font-bold transition-all hover:bg-indigo-600 hover:text-white border border-indigo-500/20"
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                      <select id="inline-mode-select" className="w-full rounded-lg bg-white/80 dark:bg-white/10 px-2 py-1.5 text-[11px] border border-indigo-500/20">
+                        <option value="walking">🏃 A pie</option>
+                        <option value="cycling">🚲 Bicicleta</option>
+                        <option value="bus">🚌 Bus / Coche</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {isTyping && (
+                <div className="flex items-center gap-1 text-[10px] text-[var(--overlay-text-muted)]">
+                  <span className="animate-bounce">●</span>
+                  <span className="animate-bounce [animation-delay:0.1s]">●</span>
+                  <span className="animate-bounce [animation-delay:0.2s]">●</span>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}
+              className="flex items-center gap-2"
+            >
+              <div className="relative flex-1">
+                <input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Escribe algo..."
+                  className="w-full rounded-xl border border-[var(--overlay-border)] bg-[var(--overlay-card)] pl-3 pr-9 py-2 text-[0.8125rem] text-[var(--overlay-text)] shadow-inner"
+                  aria-label="Mensaje al agente"
+                />
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-lg transition-all active:scale-95"
+                >
+                  {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white disabled:opacity-50 transition-all hover:bg-indigo-500 active:scale-95 shadow-lg shadow-indigo-600/20"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Floating variant (default) ──
   return (
-    <div className="pointer-events-none absolute right-4 bottom-4 z-30 flex flex-col-reverse items-end gap-3 md:bottom-6 md:right-6">
+    <div className={`pointer-events-none absolute right-4 bottom-4 z-30 flex flex-col-reverse items-end gap-3 md:bottom-6 md:right-6 transition-all duration-500 ${hideFab && !isOpen ? 'opacity-0 translate-y-8 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
       {/* Botón Flotante del Agente */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -414,155 +567,94 @@ export function FleetGuideAgent({
         aria-modal="true"
         aria-labelledby="fleet-agent-title"
         aria-describedby="fleet-agent-desc"
-        className={`pointer-events-auto w-80 max-w-sm overflow-hidden rounded-3xl border border-white/20 bg-[var(--overlay-surface)]/90 shadow-[0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-2xl transition-all duration-500 origin-bottom-right ${
+        className={`pointer-events-auto w-[320px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[2.5rem] border border-white/20 bg-[var(--overlay-surface)]/90 shadow-[0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-2xl transition-all duration-500 origin-bottom-right ${
           isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-10 pointer-events-none'
         }`}
       >
-          <div className="flex items-center gap-3 border-b border-white/10 bg-indigo-600/10 p-4">
-          <div className="relative rounded-full bg-indigo-500/20 p-2">
-            <Sparkles id="fleet-agent-title" className="h-5 w-5 text-indigo-400" />
-            <span className="absolute right-0 top-0 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-white/10"></span>
-          </div>
-          <div>
-            <h3 className="font-semibold text-[var(--overlay-text)]">Agente Smart Data</h3>
-            <p id="fleet-agent-desc" className="text-[10px] font-medium uppercase tracking-wider text-[var(--overlay-text)]/50">Online · Santander</p>
+        {/* Header con gradiente */}
+        <div className="relative overflow-hidden bg-gradient-to-r from-indigo-600 to-violet-600 p-4 text-white">
+          <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/10 blur-xl"></div>
+          <div className="relative flex items-center gap-4">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-md shadow-inner">
+              <Sparkles className="h-5 w-5 text-indigo-100" />
+            </div>
+            <div>
+              <h3 id="fleet-agent-title" className="text-[15px] font-bold tracking-tight">Smart Agent</h3>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <p id="fleet-agent-desc" className="text-[10px] text-indigo-100/80 font-medium uppercase tracking-wider">En línea</p>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="p-3 flex flex-col gap-2">
-          {/* Stats summary */}
-          <div className="flex items-center justify-between px-3">
-            <div>
-              {isLoading ? (
-                <div className="text-sm text-[var(--overlay-text-muted)]">Cargando datos de flota…</div>
-              ) : stats ? (
-                <div className="text-sm text-[var(--overlay-text)]">
-                  Flota: <strong className="text-indigo-400">{stats.totalVehicles}</strong> autobuses · Capacidad total: <strong className="text-emerald-400">{stats.totalCapacity.toLocaleString()}</strong>
-                </div>
-              ) : (
-                <div className="text-sm text-[var(--overlay-text-muted)]">No hay datos disponibles.</div>
-              )}
-              {lastUpdated ? (
-                <div className="mt-1 text-[0.625rem] text-[var(--overlay-text-muted)]">Última actualización: {new Date(lastUpdated).toLocaleString()}</div>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
+        <div className="p-4 flex flex-col gap-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+          {/* Stats summary Card */}
+          <div className="rounded-2xl bg-gradient-to-br from-indigo-500/5 to-violet-500/5 border border-indigo-500/10 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-[var(--overlay-text-muted)]">Flota Santander</h4>
               <button
                 onClick={() => fetchFleet()}
                 disabled={isRefreshing}
-                className={`rounded-md px-2 py-1 text-xs font-semibold transition ${isRefreshing ? 'opacity-50 cursor-not-allowed border-[var(--overlay-border)] bg-[var(--overlay-card)]' : 'bg-[var(--overlay-accent)] text-white'}`}
+                className={`rounded-full p-1.5 transition-all hover:bg-indigo-500/10 ${isRefreshing ? 'animate-spin' : ''}`}
               >
-                {isRefreshing ? 'Actualizando…' : 'Actualizar'}
+                <RefreshCw className="h-4 w-4 text-indigo-500" />
               </button>
             </div>
+            
+            {isLoading ? (
+              <div className="flex flex-col gap-2 py-1">
+                <div className="h-8 w-full animate-pulse rounded-lg bg-black/5 dark:bg-white/5"></div>
+              </div>
+            ) : stats ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-white/50 p-3 shadow-sm dark:bg-white/5 border border-white/20">
+                    <p className="text-[9px] font-medium text-[var(--overlay-text-muted)] uppercase">Buses</p>
+                    <p className="text-base font-bold text-indigo-600 dark:text-indigo-400">{stats.totalVehicles}</p>
+                  </div>
+                  <div className="rounded-xl bg-white/50 p-3 shadow-sm dark:bg-white/5 border border-white/20">
+                    <p className="text-[9px] font-medium text-[var(--overlay-text-muted)] uppercase">ECO</p>
+                    <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{stats.ecoPercentage.toFixed(0)}%</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          {error ? (
-            <div className="mx-3 mt-2 rounded-md border border-rose-400/30 bg-rose-500/5 p-2 text-sm text-rose-400">
-              <div className="flex items-center justify-between">
-                <span>{error}</span>
-                <button onClick={() => fetchFleet()} className="ml-2 text-xs underline">Reintentar</button>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Fuel breakdown */}
-          {stats ? (
-            <div className="mt-2 px-3">
-              <p className="text-xs font-semibold uppercase text-[var(--overlay-text-muted)]">Combustible</p>
-              <ul className="mt-2 flex flex-col gap-2">
-                {Object.entries(stats.fuelTypes)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([fuel, count]) => {
-                    const pct = stats.totalVehicles > 0 ? (count / stats.totalVehicles) * 100 : 0;
-                    const label = fuel.charAt(0) + fuel.slice(1).toLowerCase();
-                    return (
-                      <li key={fuel} className="flex items-center gap-3">
-                        <div className="w-24 text-[0.6875rem] text-[var(--overlay-text-muted)]">{label}</div>
-                        <div className="flex-1">
-                          <div className="relative h-1.5 w-full rounded-full bg-black/10 dark:bg-white/5 overflow-hidden">
-                            <div className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 transition-all duration-1000" style={{ width: `${Math.max(2, pct)}%` }} />
-                          </div>
-                        </div>
-                        <div className="w-12 text-right text-[0.75rem]">{pct.toFixed(0)}%</div>
-                      </li>
-                    );
-                  })}
-              </ul>
-            </div>
-          ) : null}
-
-          {/* Recommendations */}
-          {stats ? (
-            <div className="mt-3 mx-3 rounded-lg bg-indigo-500/10 p-3 text-xs leading-relaxed text-indigo-200">
-              <strong className="block mb-1">Recomendación de Movilidad:</strong>
-              {stats.dieselPercentage > 60 ? (
-                <>
-                  <p>Alto porcentaje de vehículos diésel ({stats.dieselPercentage.toFixed(0)}%). Para trayectos cortos (&lt;3km) considera caminar o bicicleta para reducir tu huella.</p>
-                </>
-              ) : stats.dieselPercentage > 30 ? (
-                <>
-                  <p>La flota tiene una mezcla de combustible. Prioriza transporte público para distancias medias y bici/pie para cortas.</p>
-                </>
-              ) : stats.ecoPercentage > 60 ? (
-                <>
-                  <p>La flota es mayormente ecológica ({stats.ecoPercentage.toFixed(0)}%). El transporte público es una opción eficiente y baja en emisiones.</p>
-                </>
-              ) : (
-                <>
-                  <p>La flota muestra una composición mixta. Si buscas la opción más sostenible, elige caminar o bicicleta en distancias cortas.</p>
-                </>
-              )}
-
-              <div className="mt-2 flex gap-2">
-                <button
-                  onClick={() => { setIsOpen(false); /* placeholder: could focus route panel */ }}
-                  className="rounded-md bg-indigo-600 px-3 py-1 text-xs text-white"
-                >Ver rutas</button>
-                <button
-                  onClick={() => { navigator.clipboard?.writeText(`Flota: ${stats.totalVehicles}, Diesel: ${stats.dieselPercentage.toFixed(1)}%`); }}
-                  className="rounded-md border border-[var(--overlay-border)] px-3 py-1 text-xs text-[var(--overlay-text)]"
-                >Copiar resumen</button>
-              </div>
-            </div>
-          ) : null}
+          {/* Sugerencias siempre visibles */}
+          <div className="flex flex-wrap gap-2 px-1 mb-1">
+            {SUGGESTIONS.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => handleSendMessage(s.text)}
+                className="rounded-full border border-indigo-500/20 bg-indigo-500/5 px-3 py-1.5 text-[11px] font-medium text-indigo-600 transition-all hover:bg-indigo-500 hover:text-white dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
 
           {/* Chat Section */}
           <div className="flex flex-col gap-3">
-            <h4 className="px-3 text-[10px] font-bold uppercase tracking-widest text-[var(--overlay-text-muted)]">Asistente Virtual</h4>
-            
-            {/* Sugerencias siempre visibles */}
-            <div className="flex flex-wrap gap-2 px-3 mb-1">
-              {SUGGESTIONS.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSendMessage(s.text)}
-                  className="rounded-full border border-indigo-500/20 bg-indigo-500/5 px-3 py-1.5 text-[11px] font-medium text-indigo-600 transition-all hover:bg-indigo-500 hover:text-white dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white"
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="max-h-48 overflow-y-auto px-3" aria-live="polite">
+            <div className="min-h-[100px] rounded-2xl bg-black/5 dark:bg-white/5 p-4 flex flex-col gap-3">
               {messages.length === 0 && (
-                <div className="text-xs text-[var(--overlay-text-muted)]">Haz preguntas sobre la flota, p. ej.: "¿Qué % es diesel?"</div>
+                <p className="text-center text-[11px] font-medium text-[var(--overlay-text-muted)] py-3">¿Cómo puedo ayudarte hoy?</p>
               )}
               {messages.map((m, idx) => (
-                <div key={idx} className={`mt-2 flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
-                  m.sender === 'user' 
-                    ? 'bg-indigo-600 text-white rounded-tr-none' 
-                    : 'bg-[var(--overlay-card)] text-[var(--overlay-text)] rounded-tl-none border border-white/5'
-                }`}>
-                  {m.text}
-                </div>
-                
-                {/* Menú de opciones si existen */}
-                {m.options && pendingStop && (
-                  <div className="mt-3 flex flex-col gap-3 w-full max-w-[90%] rounded-2xl bg-indigo-500/10 p-4 border border-indigo-500/20 animate-in fade-in zoom-in-95 duration-300">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 mb-2">1. Elige tu Perfil</p>
+                <div key={idx} className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm shadow-sm ${
+                    m.sender === 'user' 
+                      ? 'bg-indigo-600 text-white rounded-tr-none' 
+                      : 'bg-[var(--overlay-card)] text-[var(--overlay-text)] rounded-tl-none border border-white/5'
+                  }`}>
+                    {m.text}
+                  </div>
+                  
+                  {/* Menú de opciones si existen */}
+                  {m.options && pendingStop && (
+                    <div className="mt-3 flex flex-col gap-3 w-full rounded-2xl bg-indigo-500/10 p-4 border border-indigo-500/20">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Personalizar Ruta</p>
                       <div className="flex gap-2">
                         {m.options.profiles.map((p: UserProfile) => (
                           <button
@@ -571,67 +663,62 @@ export function FleetGuideAgent({
                               const mode = (document.getElementById('mode-select') as HTMLSelectElement)?.value || 'walking';
                               handleOptionSelect(p, mode);
                             }}
-                            className="flex-1 rounded-lg bg-white/80 dark:bg-white/10 px-2 py-1.5 text-[10px] font-bold transition-all hover:bg-indigo-600 hover:text-white border border-indigo-500/20"
+                            className="flex-1 rounded-lg bg-white/80 dark:bg-white/10 py-1.5 text-[10px] font-bold transition-all hover:bg-indigo-600 hover:text-white border border-indigo-500/20"
                           >
                             {p}
                           </button>
                         ))}
                       </div>
-                    </div>
-                    
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 mb-2">2. Modo de Transporte</p>
                       <select 
                         id="mode-select"
-                        className="w-full rounded-lg bg-white/80 dark:bg-white/10 px-3 py-2 text-xs border border-indigo-500/20 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                        className="w-full rounded-lg bg-white/80 dark:bg-white/10 px-3 py-2 text-xs border border-indigo-500/20"
                       >
                         <option value="walking">🏃 A pie</option>
                         <option value="cycling">🚲 Bicicleta</option>
                         <option value="bus">🚌 Bus / Coche</option>
                       </select>
                     </div>
-                  </div>
-                )}
-              </div>
-              ))}
-              {isTyping && (
-                <div className="mt-2 flex justify-start">
-                  <div className="rounded-lg bg-[var(--overlay-card)] px-3 py-2 text-sm text-[var(--overlay-text-muted)]">Escribiendo…</div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
           </div>
+        </div>
 
-          {/* Input area */}
-          <div className="mt-3 flex items-center gap-2 px-3 pb-3">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendMessage(input);
-              }}
-              className="flex flex-1 items-center gap-2"
+        {/* Input area fijo abajo */}
+        <div className="border-t border-black/5 dark:border-white/10 p-4 bg-white/50 backdrop-blur-md dark:bg-black/20">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendMessage(input);
+            }}
+            className="flex items-center gap-3"
+          >
+            <div className="relative flex-1">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Escribe algo..."
+                className="w-full rounded-xl border border-[var(--overlay-border)] bg-[var(--overlay-card)] pl-3 pr-10 py-2.5 text-sm text-[var(--overlay-text)] shadow-inner"
+                aria-label="Mensaje al agente"
+              />
+              <button
+                type="button"
+                onClick={toggleListening}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-xl transition-all active:scale-95 shadow-lg shadow-indigo-600/20"
+              >
+                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </button>
+            </div>
+            <button 
+              type="submit" 
+              disabled={!input.trim()}
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white disabled:opacity-50 transition-all hover:bg-indigo-500 active:scale-95 shadow-lg shadow-indigo-600/20"
             >
-              <div className="relative flex-1">
-                <input
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Escribe algo..."
-                  className="w-full rounded-xl border border-[var(--overlay-border)] bg-[var(--overlay-card)] pl-3 pr-10 py-2.5 text-sm text-[var(--overlay-text)] shadow-inner focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  aria-label="Mensaje al agente"
-                />
-                <button
-                  type="button"
-                  onClick={toggleListening}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 transition-colors ${isListening ? 'bg-rose-500 text-white animate-pulse' : 'text-[var(--overlay-text-muted)] hover:bg-white/10'}`}
-                  title={isListening ? "Detener voz" : "Usar voz"}
-                >
-                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                </button>
-              </div>
-              <button type="submit" className="rounded-md bg-indigo-600 px-3 py-2 text-sm text-white">Enviar</button>
-            </form>
-          </div>
+              <Send className="h-5 w-5" />
+            </button>
+          </form>
         </div>
       </div>
     </div>

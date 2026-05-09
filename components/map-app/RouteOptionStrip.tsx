@@ -1,6 +1,7 @@
 "use client";
 
 import type { ScoredRoute, UserProfile } from "@/lib/routing";
+import { Sparkles } from "lucide-react";
 
 function totalMinutes(scored: ScoredRoute): number {
   return scored.candidate.legs.reduce((s, l) => s + l.durationMinutes, 0);
@@ -11,11 +12,13 @@ export function RouteOptionStrip({
   selectedId,
   onSelect,
   profile,
+  onOpenAgent,
 }: {
   ranked: ScoredRoute[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   profile: UserProfile | null;
+  onOpenAgent?: () => void;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -65,6 +68,23 @@ export function RouteOptionStrip({
               </button>
             );
           })}
+
+        {/* Botón para abrir el agente */}
+        {onOpenAgent && (
+          <button
+            type="button"
+            onClick={onOpenAgent}
+            className="flex min-w-[11.5rem] shrink-0 snap-start flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-indigo-500/30 bg-indigo-500/5 px-3 py-2.5 text-center transition hover:border-indigo-500/60 hover:bg-indigo-500/10 active:scale-[0.97] sm:min-w-[13rem]"
+          >
+            <Sparkles className="h-5 w-5 text-indigo-500" />
+            <span className="text-[0.75rem] font-semibold text-indigo-600 dark:text-indigo-400">
+              Smart Agent
+            </span>
+            <span className="text-[0.625rem] text-[var(--overlay-text-muted)]">
+              Pedir recomendación
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );
