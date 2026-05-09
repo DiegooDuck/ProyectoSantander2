@@ -41,14 +41,18 @@ function calmRaw(candidate: RouteCandidate): number {
 
 export function scoreRoute(
   candidate: RouteCandidate,
-  profile: UserProfile,
+  profile: UserProfile | null,
   norms: {
     duration: number;
     sustainability: number;
     calm: number;
   },
 ): ScoredRoute {
-  const w = PROFILE_WEIGHTS[profile];
+  // If no profile, use neutral weights
+  const w = profile 
+    ? PROFILE_WEIGHTS[profile] 
+    : { duration: 0.33, sustainability: 0.33, calm: 0.34 };
+
   const weightedTotal =
     w.duration * norms.duration +
     w.sustainability * norms.sustainability +
@@ -67,7 +71,7 @@ export function scoreRoute(
 /** Calcula puntuaciones comparando candidatos entre sí (batch scoring). */
 export function scoreAllCandidates(
   candidates: RouteCandidate[],
-  profile: UserProfile,
+  profile: UserProfile | null,
 ): ScoredRoute[] {
   if (candidates.length === 0) return [];
 
@@ -91,8 +95,9 @@ export function scoreAllCandidates(
 /** Menor `weightedTotal` gana. */
 export function selectBestRoute(
   candidates: RouteCandidate[],
-  profile: UserProfile,
+  profile: UserProfile | null,
 ): ScoredRoute | null {
+  if (!profile) return null; // No auto-selection if no profile
   const scored = scoreAllCandidates(candidates, profile);
   if (scored.length === 0) return null;
   return scored.reduce((best, cur) =>

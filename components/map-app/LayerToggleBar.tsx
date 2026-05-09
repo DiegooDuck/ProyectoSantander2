@@ -12,6 +12,17 @@ export function LayerToggleBar({ layers, onChange }: LayerToggleBarProps) {
     onChange({ ...layers, [key]: !layers[key] });
   };
 
+  const selectAll = () => {
+    onChange({ buses: true, bikes: true, traffic: true });
+  };
+
+  const deselectAll = () => {
+    onChange({ buses: false, bikes: false, traffic: false });
+  };
+
+  const allSelected = layers.buses && layers.bikes && layers.traffic;
+  const noneSelected = !layers.buses && !layers.bikes && !layers.traffic;
+
   const pill = (
     key: keyof MapLayerVisibility,
     label: string,
@@ -37,6 +48,21 @@ export function LayerToggleBar({ layers, onChange }: LayerToggleBarProps) {
     );
   };
 
+  const bulkButton = (label: string, onClick: () => void, disabled: boolean) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex min-h-9 flex-1 basis-[45%] items-center justify-center rounded-lg border px-2 py-1.5 text-[0.625rem] font-semibold transition sm:basis-0 sm:px-3 ${
+        disabled
+          ? "cursor-not-allowed border-[var(--overlay-border)] bg-[var(--overlay-card)] text-[var(--overlay-text-muted)] opacity-50"
+          : "border-[var(--overlay-accent)] bg-[var(--overlay-accent-soft)] text-[var(--overlay-accent)] hover:bg-[var(--overlay-accent-soft-hover)]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="flex flex-col gap-2">
       <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[var(--overlay-text-muted)]">
@@ -46,6 +72,10 @@ export function LayerToggleBar({ layers, onChange }: LayerToggleBarProps) {
         {pill("buses", "Bus", "🚌")}
         {pill("bikes", "Bici", "🚲")}
         {pill("traffic", "Tráfico", "🟠")}
+      </div>
+      <div className="flex w-full gap-2">
+        {bulkButton("Seleccionar todo", selectAll, allSelected)}
+        {bulkButton("Deseleccionar todo", deselectAll, noneSelected)}
       </div>
     </div>
   );

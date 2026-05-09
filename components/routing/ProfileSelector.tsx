@@ -4,8 +4,8 @@ import type { UserProfile } from "@/lib/routing";
 import { ALL_PROFILES, PROFILE_COPY } from "@/lib/routing";
 
 type ProfileSelectorProps = {
-  value: UserProfile;
-  onChange: (profile: UserProfile) => void;
+  value: UserProfile | null;
+  onChange: (profile: UserProfile | null) => void;
   disabled?: boolean;
   layout?: "default" | "compact";
 };
@@ -16,6 +16,13 @@ export function ProfileSelector({
   disabled = false,
   layout = "default",
 }: ProfileSelectorProps) {
+  const handleToggle = (id: UserProfile) => {
+    if (value === id) {
+      onChange(null);
+    } else {
+      onChange(id);
+    }
+  };
   if (layout === "compact") {
     return (
       <div className="flex flex-col gap-2">
@@ -37,7 +44,7 @@ export function ProfileSelector({
                 role="radio"
                 aria-checked={selected}
                 disabled={disabled}
-                onClick={() => onChange(id)}
+                onClick={() => handleToggle(id)}
                 className={`flex min-w-[9.25rem] shrink-0 snap-start flex-col rounded-2xl border px-3 py-2 text-left transition sm:min-w-[10rem] ${
                   selected
                     ? "border-[var(--overlay-accent)] bg-[var(--overlay-accent-soft)] shadow-[0_0_0_1px_var(--overlay-accent-glow)]"
@@ -74,7 +81,7 @@ export function ProfileSelector({
             role="radio"
             aria-checked={selected}
             disabled={disabled}
-            onClick={() => onChange(id)}
+            onClick={() => handleToggle(id)}
             className={`flex min-h-[3.25rem] w-full flex-col items-start rounded-2xl border px-4 py-3 text-left transition md:min-h-0 md:flex-1 md:rounded-xl ${
               selected
                 ? "border-[var(--overlay-accent)] bg-[var(--overlay-accent-soft)] shadow-[0_0_0_1px_var(--overlay-accent-glow)]"

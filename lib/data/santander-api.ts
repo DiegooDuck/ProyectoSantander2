@@ -1,4 +1,4 @@
-import type { BikeShareRecord, BikeShareDatasetFile, DatasetMeta } from "./types";
+import type { BikeShareRecord, BikeShareDatasetFile, DatasetMeta, BusStopRecord, BusStopsDatasetFile } from "./types";
 
 // Tipos para los datos del GitHub de Santander
 interface SantanderBikeStation {
@@ -129,5 +129,35 @@ export async function fetchSantanderBikeRoutes(): Promise<any[]> {
   } catch (error) {
     console.error("Error fetching Santander bike routes:", error);
     return [];
+  }
+}
+
+export async function fetchSantanderBusStops(): Promise<BusStopsDatasetFile | null> {
+  try {
+    const res = await fetch("/api/santander/bus-stops");
+    if (!res.ok) throw new Error("Fallo al obtener paradas de bus desde el proxy");
+    const data = await res.json();
+    if (!data.resources) return null;
+
+    const items: BusStopRecord[] = data.resources.map((r: any) => ({
+      id: r["dc:identifier"] || r["ayto:numero"],
+      name: r["ayto:parada"] || r["vivo:address1"],
+      lng: parseFloat(r["wgs84_pos:long"]),
+      lat: parseFloat(r["wgs84_pos:lat"]),
+      lines: [] // Líneas no siempre están disponibles directamente en este endpoint
+    })).filter((s: BusStopRecord) => !isNaN(s.lng) && !isNaN(s.lat));
+
+    return {
+      version: "1",
+      meta: {
+        updatedAt: new Date().toISOString(),
+        region: "Santander",
+        source: "datos.santander.es"
+      },
+      items
+    };
+  } catch (err) {
+    console.error("Error en fetchSantanderBusStops:", err);
+    return null;
   }
 }

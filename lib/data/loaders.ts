@@ -1,5 +1,5 @@
 import type { MapDataBundle } from "./types";
-import { loadSantanderBikeData } from "./santander-api";
+import { loadSantanderBikeData, fetchSantanderBusStops } from "./santander-api";
 
 import routesMock from "../../data/routes.mock.json";
 import busStopsMock from "../../data/bus-stops.mock.json";
@@ -34,12 +34,15 @@ export async function loadMapDataBundleFromSantanderApi(): Promise<MapDataBundle
   await sleep(MOCK_LATENCY_MS);
   
   try {
-    // Cargar datos de bicicletas desde la API de Santander
-    const bikeShare = await loadSantanderBikeData();
+    // Cargar datos de bicicletas y bus desde la API de Santander
+    const [bikeShare, busStopsApi] = await Promise.all([
+      loadSantanderBikeData(),
+      fetchSantanderBusStops()
+    ]);
     
     return {
       routes: routesMock as MapDataBundle["routes"],
-      busStops: busStopsMock as MapDataBundle["busStops"],
+      busStops: busStopsApi || (busStopsMock as MapDataBundle["busStops"]),
       bikeShare,
       traffic: trafficMock as MapDataBundle["traffic"],
     };

@@ -7,6 +7,7 @@ const LABELS: Record<AppThemeId, string> = {
   dark: "Oscuro",
   light: "Claro",
   illuminated: "Ciudad",
+  satellite: "Satélite",
 };
 
 export function ThemeSwitcher({

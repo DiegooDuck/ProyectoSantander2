@@ -54,18 +54,24 @@ export function bikeShareToGeoJSON(bikes: BikeShareRecord[]): GeoFeatureCollecti
 }
 
 export function trafficToGeoJSON(segments: TrafficSegmentRecord[]): GeoFeatureCollection {
+  const features: any[] = [];
+  segments.forEach((t) => {
+    t.coordinates.forEach((coord) => {
+      features.push({
+        type: "Feature",
+        properties: {
+          id: t.id,
+          severity: t.severity,
+        },
+        geometry: {
+          type: "Point",
+          coordinates: coord,
+        },
+      });
+    });
+  });
   return {
     type: "FeatureCollection",
-    features: segments.map((t) => ({
-      type: "Feature",
-      properties: {
-        id: t.id,
-        severity: t.severity,
-      },
-      geometry: {
-        type: "LineString",
-        coordinates: t.coordinates,
-      },
-    })),
+    features,
   };
 }

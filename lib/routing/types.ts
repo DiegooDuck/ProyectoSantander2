@@ -43,7 +43,7 @@ export type RouteCandidate = {
 export type RoutePlanningRequest = {
   origin: { lng: number; lat: number };
   destination: { lng: number; lat: number };
-  profile: UserProfile;
+  profile: UserProfile | null;
   departureTime?: string;
 };
 

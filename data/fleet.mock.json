@@ -1,0 +1,25 @@
+{
+  "resources": [
+    {
+      "dc:identifier": "bus-001",
+      "ayto:PlazasSentadas": "30",
+      "ayto:PlazasDePie": "20",
+      "ayto:Combustible": "DIESEL",
+      "dc:modified": "2026-05-01T12:00:00Z"
+    },
+    {
+      "dc:identifier": "bus-002",
+      "ayto:PlazasSentadas": "28",
+      "ayto:PlazasDePie": "22",
+      "ayto:Combustible": "HÍBRIDO",
+      "dc:modified": "2026-05-01T12:00:00Z"
+    },
+    {
+      "dc:identifier": "bus-003",
+      "ayto:PlazasSentadas": "25",
+      "ayto:PlazasDePie": "15",
+      "ayto:Combustible": "ELÉCTRICO",
+      "dc:modified": "2026-05-01T12:00:00Z"
+    }
+  ]
+}

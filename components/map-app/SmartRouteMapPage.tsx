@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Leaf, ChevronUp, ChevronDown } from "lucide-react";
 import {
   bikeShareToGeoJSON,
   busStopsToGeoJSON,
@@ -24,16 +25,19 @@ import { ThemeSwitcher } from "@/components/map-app/ThemeSwitcher";
 import { ProfileSelector } from "@/components/routing/ProfileSelector";
 import { DestinationInput, type Destination } from "@/components/routing/DestinationInput";
 import { ThemeProvider, useAppTheme } from "@/components/theme/ThemeProvider";
+import { FleetGuideAgent } from "@/components/map-app/FleetGuideAgent";
 
 function MapExperience() {
   const { theme, setTheme, mapStyleUrl, routeLineColor } = useAppTheme();
   const [bundle, setBundle] = useState<MapDataBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<UserProfile>("PRISA");
+  const [profile, setProfile] = useState<UserProfile | null>("PRISA");
   const [manualRouteId, setManualRouteId] = useState<string | null>(null);
   const [destination, setDestination] = useState<Destination | null>(null);
   const [generatedCandidates, setGeneratedCandidates] = useState<RouteCandidate[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
+  const [userLocation, setUserLocation] = useState<{ lng: number; lat: number } | null>(null);
   const [layers, setLayers] = useState<MapLayerVisibility>({
     buses: true,
     bikes: true,
@@ -42,6 +46,23 @@ function MapExperience() {
 
   useEffect(() => {
     let cancelled = false;
+    let watchId: number | null = null;
+    
+    // Obtener ubicación inicial y rastrear
+    if (typeof window !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        if (!cancelled) {
+          setUserLocation({ lng: pos.coords.longitude, lat: pos.coords.latitude });
+        }
+      });
+      
+      watchId = navigator.geolocation.watchPosition((pos) => {
+        if (!cancelled) {
+          setUserLocation({ lng: pos.coords.longitude, lat: pos.coords.latitude });
+        }
+      });
+    }
+
     resolveMapDataBundle()
       .then((d) => {
         if (!cancelled) setBundle(d);
@@ -50,8 +71,12 @@ function MapExperience() {
         if (!cancelled)
           setLoadError(e instanceof Error ? e.message : "Error de datos");
       });
+
     return () => {
       cancelled = true;
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
     };
   }, []);
 
@@ -59,8 +84,22 @@ function MapExperience() {
     setManualRouteId(null);
   }, [profile]);
 
-  const handleGenerateRoute = async () => {
-    if (!destination) return;
+  const handleStopSelect = (lng: number, lat: number, name: string) => {
+    const newDest: Destination = {
+      name: name,
+      coordinates: [lng, lat],
+    };
+    setDestination(newDest);
+    
+    // Disparar la generación de ruta
+    setIsGenerating(true);
+    // Usamos un pequeño delay para que la UI refleje el cambio de destino antes de empezar la carga pesada
+    setTimeout(() => {
+      generateRouteWithDestination(newDest);
+    }, 50);
+  };
+
+  const generateRouteWithDestination = async (targetDest: Destination) => {
     setIsGenerating(true);
     try {
       const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
@@ -91,8 +130,8 @@ function MapExperience() {
         console.warn("No se pudo obtener la ubicación, usando origen por defecto", err);
       }
 
-      const destLng = destination.coordinates[0];
-      const destLat = destination.coordinates[1];
+      const destLng = targetDest.coordinates[0];
+      const destLat = targetDest.coordinates[1];
 
       const modes = [
         { mapboxMode: "walking", ourMode: "walking" as TransportMode, label: "Ruta a pie" },
@@ -112,7 +151,7 @@ function MapExperience() {
               legs: [
                 {
                   mode: m.ourMode,
-                  durationMinutes: Math.round(route.duration / 60),
+                  durationMinutes: Math.max(1, Math.round(route.duration / 60)),
                   distanceKm: route.distance / 1000,
                 }
               ],
@@ -148,6 +187,11 @@ function MapExperience() {
     }
   };
 
+  const handleGenerateRoute = async () => {
+    if (!destination) return;
+    generateRouteWithDestination(destination);
+  };
+
   const candidates = generatedCandidates.length > 0 
     ? generatedCandidates 
     : (bundle?.routes.items ?? []);
@@ -165,11 +209,10 @@ function MapExperience() {
   const selectedId =
     manualRouteId ??
     recommended?.candidate.id ??
-    candidates[0]?.id ??
     null;
 
   const selectedCandidate =
-    candidates.find((c) => c.id === selectedId) ?? candidates[0] ?? null;
+    candidates.find((c) => c.id === selectedId) ?? null;
 
   const routeGeoJSON = selectedCandidate
     ? candidateToFeatureCollection(selectedCandidate)
@@ -190,6 +233,10 @@ function MapExperience() {
 
   const activeScore = ranked.find((s) => s.candidate.id === selectedId);
 
+  const isEcoProfile = profile === "ECO";
+  const isEcoFriendly = activeScore?.candidate.legs.every((l) => l.mode === "walking" || l.mode === "cycling");
+  const earnedPoints = isEcoProfile && isEcoFriendly ? 50 : 0;
+
   return (
     <div className="relative h-dvh min-h-0 w-full overflow-hidden bg-black">
       <div className="absolute inset-0 z-0">
@@ -202,6 +249,8 @@ function MapExperience() {
           bikeGeoJSON={bikeGeoJSON}
           trafficGeoJSON={trafficGeoJSON}
           layers={layers}
+          onSelectStop={handleStopSelect}
+          userLocation={userLocation}
         />
       </div>
 
@@ -221,11 +270,23 @@ function MapExperience() {
           <ThemeSwitcher value={theme} onChange={setTheme} />
         </header>
 
+        <FleetGuideAgent />
+
         <div className="min-h-0 flex-1" aria-hidden />
 
-        <div className="pointer-events-auto mt-auto w-full min-w-0 max-w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 md:absolute md:bottom-4 md:left-4 md:mt-0 md:max-w-md md:px-0 md:pb-0 lg:max-w-lg">
-          <div className="max-h-[min(52dvh,28rem)] overflow-y-auto rounded-3xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)] shadow-[0_-8px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl md:max-h-none md:rounded-2xl md:shadow-2xl">
-            <div className="mx-auto flex max-h-[inherit] flex-col gap-4 p-4 sm:p-5">
+        <div className="pointer-events-auto mt-auto w-full min-w-0 max-w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 md:absolute md:bottom-4 md:left-4 md:mt-0 md:max-w-md md:px-0 md:pb-0 lg:max-w-lg transition-all duration-300">
+          <div className="flex justify-end mb-2">
+            <button 
+              onClick={() => setIsPanelExpanded(!isPanelExpanded)}
+              className="bg-[var(--overlay-surface)] border border-[var(--overlay-border)] text-[var(--overlay-text)] p-2 rounded-full shadow-lg backdrop-blur hover:bg-[var(--overlay-card)] transition"
+              aria-label={isPanelExpanded ? "Minimizar panel" : "Expandir panel"}
+            >
+              {isPanelExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
+            </button>
+          </div>
+          
+          <div className={`overflow-y-auto rounded-3xl border border-[var(--overlay-border)] bg-[var(--overlay-surface)] shadow-[0_-8px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl md:rounded-2xl md:shadow-2xl transition-all duration-300 origin-bottom ${isPanelExpanded ? 'max-h-[min(52dvh,28rem)] md:max-h-none opacity-100 scale-100' : 'max-h-0 opacity-0 scale-95 overflow-hidden border-none shadow-none py-0'}`}>
+            <div className="mx-auto flex flex-col gap-4 p-4 sm:p-5">
               {loadError ? (
                 <p className="text-sm text-red-400">{loadError}</p>
               ) : null}
@@ -256,6 +317,7 @@ function MapExperience() {
                     ranked={ranked}
                     selectedId={selectedId}
                     onSelect={(id) => setManualRouteId(id)}
+                    profile={profile}
                   />
 
                   <ProfileSelector
@@ -270,7 +332,7 @@ function MapExperience() {
                   {activeScore ? (
                     <div className="rounded-2xl border border-[var(--overlay-border)] bg-[var(--overlay-card)] px-3 py-2.5">
                       <p className="text-[0.625rem] font-semibold uppercase tracking-[0.12em] text-[var(--overlay-text-muted)]">
-                        Detalle · perfil {profile}
+                        Detalle · {profile ? `perfil ${profile}` : 'sin perfil aplicado'}
                       </p>
                       <p className="mt-1 text-[0.8125rem] text-[var(--overlay-text-muted)]">
                         Puntuación normalizada (menor es mejor):{" "}
@@ -278,6 +340,15 @@ function MapExperience() {
                           {activeScore.breakdown.weightedTotal.toFixed(3)}
                         </span>
                       </p>
+                      
+                      {earnedPoints > 0 && (
+                        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-emerald-500 border border-emerald-500/20 w-max">
+                          <Leaf className="h-4 w-4" />
+                          <span className="text-[0.75rem] font-bold">
+                            + {earnedPoints} Puntos Eco ganados
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ) : null}
                 </>
@@ -286,6 +357,7 @@ function MapExperience() {
           </div>
         </div>
       </div>
+      <FleetGuideAgent />
     </div>
   );
 }
