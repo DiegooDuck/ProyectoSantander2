@@ -56,7 +56,8 @@ export type SustainabilityLevel = {
 /** Gramos de CO2 por km en coche particular (media europea). */
 const CAR_CO2_PER_KM = 120;
 
-const LEVELS = [
+/** Umbrales de nivel según puntos eco acumulados (solo lectura UI / motor). */
+export const ECO_POINT_LEVELS = [
   { name: "Semilla",       icon: "🌱", minPoints: 0 },
   { name: "Brote",         icon: "🌿", minPoints: 100 },
   { name: "Árbol",         icon: "🌳", minPoints: 500 },
@@ -152,15 +153,15 @@ export function logTrip(
  */
 function computeLevel(totalPoints: number): SustainabilityLevel {
   let currentIdx = 0;
-  for (let i = LEVELS.length - 1; i >= 0; i--) {
-    if (totalPoints >= LEVELS[i].minPoints) {
+  for (let i = ECO_POINT_LEVELS.length - 1; i >= 0; i--) {
+    if (totalPoints >= ECO_POINT_LEVELS[i].minPoints) {
       currentIdx = i;
       break;
     }
   }
 
-  const current = LEVELS[currentIdx];
-  const next = currentIdx < LEVELS.length - 1 ? LEVELS[currentIdx + 1] : null;
+  const current = ECO_POINT_LEVELS[currentIdx];
+  const next = currentIdx < ECO_POINT_LEVELS.length - 1 ? ECO_POINT_LEVELS[currentIdx + 1] : null;
   const progress = next
     ? (totalPoints - current.minPoints) / (next.minPoints - current.minPoints)
     : 1;

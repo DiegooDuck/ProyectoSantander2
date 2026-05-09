@@ -723,10 +723,10 @@ function MapExperience() {
           {/* Título a la izquierda */}
           <div className="pointer-events-auto absolute left-4 top-[max(0.75rem,env(safe-area-inset-top))] flex min-w-0 flex-col gap-1 sm:left-5">
             <Link
-              href="/landing"
+              href="/recompensas"
               className="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-[var(--overlay-text-muted)] underline-offset-4 hover:underline"
             >
-              Info producto
+              Recompensas
             </Link>
             <h1 className="truncate text-lg font-bold tracking-tight text-[var(--overlay-text)] drop-shadow-sm sm:text-xl">
               Smart Route
