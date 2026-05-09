@@ -80,6 +80,7 @@ export function FleetGuideAgent({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const [lastSelectedBusStop, setLastSelectedBusStop] = useState<string | null>(null);
+  const [faqExpanded, setFaqExpanded] = useState(true);
 
   useEffect(() => {
     if (selectedBusStop && selectedBusStop.id !== lastSelectedBusStop) {
@@ -129,14 +130,99 @@ export function FleetGuideAgent({
     }
   }, [selectedBusStop, lastSelectedBusStop, setIsOpen]);
 
-  const SUGGESTIONS = [
-    { label: "📊 Flota", text: "¿Cómo es la flota de autobuses?" },
-    { label: "📍 Paradas", text: "¿Dónde hay paradas de bus?" },
-    { label: "🌱 Sostenibilidad", text: "Dime mi resumen de sostenibilidad y ahorro de CO2" },
-    { label: "🏃 Próxima", text: "Busca la parada más cercana y llévame" },
-    { label: "🚲 Bicis", text: "¿Dime algo sobre las bicicletas?" },
-    { label: "👋 Hola", text: "Hola, ¿quién eres?" },
+  /** Agrupadas para UI; las frases están alineadas con la lógica de `handleSendMessage`. */
+  const FAQ_GROUPS: {
+    title: string;
+    items: { label: string; prompt: string; hint?: string }[];
+  }[] = [
+    {
+      title: "Rutas y paradas",
+      items: [
+        {
+          label: "Parada más cercana",
+          hint: "Trazar ruta con perfil elegible",
+          prompt: "Busca la parada más cercana y llévame",
+        },
+        {
+          label: "Paradas en el mapa",
+          hint: "Cómo verlas todas",
+          prompt: "¿Dónde están las paradas de autobús en el mapa?",
+        },
+      ],
+    },
+    {
+      title: "Flota urbana",
+      items: [
+        {
+          label: "Composición ECO vs diesel",
+          hint: "Número de buses y datos agregados",
+          prompt: "¿Cómo es la flota de autobuses?",
+        },
+      ],
+    },
+    {
+      title: "Eco y tu impacto",
+      items: [
+        {
+          label: "Mi resumen sostenibilidad",
+          hint: "CO₂ ahorrado y puntos",
+          prompt: "Dime mi resumen de sostenibilidad y ahorro de CO2",
+        },
+      ],
+    },
+    {
+      title: "TUeBICI",
+      items: [
+        {
+          label: "Cuándo faltan bicis",
+          hint: "Histórico y horarios típicos",
+          prompt: "¿Cuándo se queda sin bicis TUeBICI en zonas muy usadas?",
+        },
+        {
+          label: "Avisos de disponibilidad",
+          hint: "Alerta antes de que se agoten",
+          prompt: "Avísame si voy a quedarme sin bicis disponibles",
+        },
+        {
+          label: "Sobre TUeBICI",
+          hint: "Capas y consejos rápidos",
+          prompt: "¿Dime algo sobre las bicicletas en Santander?",
+        },
+      ],
+    },
+    {
+      title: "Ciudad y tiempo real",
+      items: [
+        {
+          label: "Parkings públicos",
+          hint: "Ocupación y recomendaciones",
+          prompt: "¿Cómo está el aparcamiento público esta hora?",
+        },
+        {
+          label: "Calidad del aire",
+          hint: "Zonas y perfil ECO",
+          prompt: "¿Hay mucho NO2 y contaminación hoy?",
+        },
+        {
+          label: "Obras e incidencias",
+          hint: "Cortes coordinados en rutas",
+          prompt: "¿Hay cortes en la calzada o incidencias en Santander?",
+        },
+      ],
+    },
+    {
+      title: "Asistente",
+      items: [
+        { label: "Presentación", hint: "", prompt: "Hola, ¿quién eres?" },
+        { label: "Qué puede hacer por mí", hint: "Ideas rápidas", prompt: "¿Qué tipo de preguntas puedes responder?" },
+      ],
+    },
   ];
+
+  const SHORTCUT_PROMPTS =
+    FAQ_GROUPS.flatMap((g) =>
+      g.items.map((item) => ({ label: item.label, prompt: item.prompt })),
+    ).slice(0, 6);
 
   const handleOptionSelect = (profile: UserProfile, mode: string, busType: "ELECTRICO" | "HIBRIDO" = "ELECTRICO") => {
     if (!pendingStop) return;
@@ -240,8 +326,14 @@ export function FleetGuideAgent({
     setInput("");
     setPendingStop(null); // Clear pending if user types manually
 
-    // Special logic for "Nearest Stop"
-    if (userText.toLowerCase().includes("parada más cercana") || userText.toLowerCase().includes("llévame")) {
+    // Parada cercana · ir en ruta (evitar confundir con «paradas» genéricas)
+    const loweredForNearest = userText.toLowerCase();
+    const wantsNearestStop =
+      loweredForNearest.includes("parada más cercana") ||
+      /\bll[eé]vame\b/.test(loweredForNearest) ||
+      (/\bparada\b/.test(loweredForNearest) && /\bcercana\b/.test(loweredForNearest));
+
+    if (wantsNearestStop) {
       setIsTyping(true);
       if (!userLocation) {
         setMessages((s) => [...s, { sender: 'agent', text: 'No puedo detectar tu ubicación. Asegúrate de activar el GPS para encontrar la parada más cercana.' }]);
@@ -318,10 +410,16 @@ export function FleetGuideAgent({
       }
       return;
     }
+
     const lowered = userText.toLowerCase();
 
-    // Sostenibilidad personal
-    if (lowered.includes("sostenibilidad") || lowered.includes("eco") || lowered.includes("ahorro")) {
+    // Sostenibilidad personal (evitar matchear sólo «eco» de «TUeBICI» antes de otros casos muy cortos…)
+    if (
+      lowered.includes("sostenibilidad") ||
+      lowered.includes("ahorro") ||
+      (lowered.includes("co2") && lowered.includes("resumen")) ||
+      /\b(mi\s+)?resumen.*sostenibilidad/i.test(lowered)
+    ) {
       const sustain = getStats();
       if (sustain.totalTrips === 0) {
         setMessages((s) => [...s, { sender: 'agent', text: "Aún no tienes viajes registrados. ¡Empieza a moverte de forma sostenible para ver tu impacto positivo en Santander! 🌱" }]);
@@ -335,6 +433,78 @@ export function FleetGuideAgent({
       return;
     }
 
+    // Flota urbana desde panel ( datos ya cargados )
+    const asksFleetOverview =
+      (/\bflota\b|\bautob[uú]s|\bautobuses\b|\bbuses\b|\bdiesel\b/.test(lowered) &&
+        !/parada|cercana|ll[eé]vame\b/.test(lowered)) ||
+      /\bcombustibles?\b|\bcapacid(ad|ades)\s+total/.test(lowered);
+
+    if (asksFleetOverview) {
+      setIsTyping(true);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      if (stats && stats.totalVehicles > 0) {
+        const eco = stats.ecoPercentage.toFixed(1);
+        const die = stats.dieselPercentage.toFixed(1);
+        setMessages((s) => [
+          ...s,
+          {
+            sender: "agent",
+            text: `Hay **${stats.totalVehicles}** vehículos en el dataset de flota. Aproximadamente **${eco}%** son híbridos o eléctricos (ECO) y **${die}%** diésel. Capacidad teórica total **≈ ${stats.totalCapacity.toLocaleString("es-ES")}** plazas (sentadas + de pie). Puedes pulsar refrescar ↑ para actualizar.`,
+          },
+        ]);
+      } else {
+        setMessages((s) => [
+          ...s,
+          {
+            sender: "agent",
+            text: "Aún no tengo cargados datos de la flota. Espera unos segundos o pulsa refrescar arriba y vuelve a preguntarme.",
+          },
+        ]);
+      }
+      setIsTyping(false);
+      return;
+    }
+
+    // Paradas (sin lanzar modo «ir a la cercana»)
+    const asksAboutStopsGlobally =
+      (/\bpara(das?|dad)\s+de\s+autob[uú]s\b|\bpara(das?|dad)\s+del\s+mapa\b|c[oó]mo\s+(ver\s+)?(las\s+)?paradas\b|capas?\s+(de\s+)?bus/i.test(lowered) ||
+        (/\bparadas\b/.test(lowered) &&
+          /\b(mapa|capa|c[oó]mo\s+ver|activ(ar|aci[oó]n))\b|\bd[oó]nde\s+(est[aá]n|hay)\b/i.test(lowered))) &&
+      !/\bcercana|más cercana|ll[eé]vame|llev(ar|arnos)\b|ruta\b/i.test(lowered);
+
+    if (asksAboutStopsGlobally) {
+      setIsTyping(true);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      setMessages((s) => [
+        ...s,
+        {
+          sender: "agent",
+          text: "Las paradas están en la capa **Autobuses** del panel del mapa. Activa el icono correspondiente para ver marcadores interactivos: al tocar una parada se enlaza con tiempo estimado y puedes lanzar rutas desde el mapa.",
+        },
+      ]);
+      setIsTyping(false);
+      return;
+    }
+
+    // «Qué puede responder» desde FAQ
+    if (
+      /\bqu[eé]\s+pued(es|o)s\b/.test(lowered) ||
+      /\btipo\s+de\s+pregunta/.test(lowered) ||
+      (lowered.includes("pregunta") && /respond(er|emos)?|ayud(ar|arte)/i.test(lowered))
+    ) {
+      setIsTyping(true);
+      await new Promise((resolve) => setTimeout(resolve, 380));
+      setMessages((s) => [
+        ...s,
+        {
+          sender: "agent",
+          text: "Te ayudo sobre: **paradas cercanas**, **orientación sobre paradas en el mapa**, **datos agregados de la flota bus**, tu **impacto eco** guardado en la app, **TUeBICI** (disponibilidad, avisos), **parkings**, **aire / contaminación**, **incidencias en la vía**. Usa las tarjetas de «Preguntas» aquí debajo si quieres verlas todas.",
+        },
+      ]);
+      setIsTyping(false);
+      return;
+    }
+
     setIsTyping(true);
     
     // Simulate network delay for AI processing
@@ -342,10 +512,16 @@ export function FleetGuideAgent({
 
     let reply = "";
 
-    if (lowered.includes("bici") && lowered.includes("sin") && (lowered.includes("dia") || lowered.includes("días") || lowered.includes("cuándo") || lowered.includes("cuando"))) {
+    if (
+      lowered.includes("bici") &&
+      lowered.includes("sin") &&
+      /\b(d[ií]a|d[ií]as|cu[aá]ndo|cuando|horarios?)\b/i.test(lowered)
+    ) {
       reply = "He analizado los datasets históricos de **TUeBICI** (Ene-Feb 2025). Las estaciones de la zona del Sardinero suelen quedarse sin bicicletas los fines de semana entre las 11:00 y las 13:00. Las del centro (Ayuntamiento) sufren escasez los días laborables a las 08:30 y 18:00. ¡Planifica con antelación! 📊🚲";
     } else if ((lowered.includes("avis") || lowered.includes("alerta") || lowered.includes("notific")) && (lowered.includes("bici") || lowered.includes("prisa") || lowered.includes("sin"))) {
       reply = "¡Entendido! 🔔 He programado un **Smart Trigger**. Monitorizaré la API de estado en tiempo real y te enviaré una notificación push en cuanto a tu estación habitual (o la más cercana) le queden **menos de 3 bicicletas**, para que te des prisa y no te quedes sin ella. 🚲💨";
+    } else if (/\balgo\s+sobre\s+las\s+bic|bicicletas\s+en\s+santander|tu[e]?bici|micro\s*-?movilidad/i.test(lowered)) {
+      reply = "Activa la capa **Bicicletas** del mapa: verás docks y bicis disponibles en tiempo casi real sobre Santander y la bahía. Combinar TUeBICI con **perfil ECO** suele mejorar tus puntos y reduce exposición si activas también calidad del aire. 🚲";
     } else if (lowered.includes("parking") || lowered.includes("aparca")) {
       reply = "Tengo conexión en directo con la red de **Parkings Públicos** de Santander. Actualmente el Parking Pombo tiene bastantes plazas, pero el de Alfonso XIII suele llenarse rápido a esta hora. ¿Quieres que te trace la ruta óptima hacia el más vacío? 🅿️🚗";
     } else if (lowered.includes("aire") || lowered.includes("contamina") || lowered.includes("polucion") || lowered.includes("polución")) {
@@ -524,14 +700,66 @@ export function FleetGuideAgent({
           </div>
         </button>
 
-        <div className={`transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[60vh] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-          <div className="border-t border-indigo-500/10 p-3 flex flex-col gap-3">
-            {/* Suggestions */}
+        <div className={`transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[70vh] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+          <div className="flex flex-col gap-3 border-t border-indigo-500/10 p-3">
+            <section className="overflow-hidden rounded-xl border border-indigo-500/15 bg-indigo-500/[0.04]" aria-labelledby="agent-faq-inline-title">
+              <button
+                id="agent-faq-inline-title"
+                type="button"
+                onClick={() => setFaqExpanded((v) => !v)}
+                aria-expanded={faqExpanded}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-indigo-500/10"
+              >
+                <span>
+                  <span className="block text-[10px] font-bold text-[var(--overlay-text)]">Preguntas que puedo responder</span>
+                  <span className="text-[9px] text-[var(--overlay-text-muted)]">Pulsa una fila para enviar la consulta</span>
+                </span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 shrink-0 text-indigo-500 transition-transform duration-300 ${faqExpanded ? "rotate-180" : ""}`}
+                  aria-hidden
+                />
+              </button>
+              {faqExpanded ? (
+                <div className="max-h-[33vh] space-y-2.5 overflow-y-auto border-t border-indigo-500/10 px-2.5 pb-2.5 pt-2 custom-scrollbar">
+                  {FAQ_GROUPS.map((group) => (
+                    <div key={group.title}>
+                      <p className="mb-1 px-0.5 text-[8px] font-bold uppercase tracking-wider text-[var(--overlay-text-muted)]">
+                        {group.title}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {group.items.map((item) => (
+                          <li key={item.prompt}>
+                            <button
+                              type="button"
+                              className="w-full rounded-lg border border-indigo-500/14 bg-[var(--overlay-card)]/70 px-2.5 py-1.5 text-left text-[10px] text-[var(--overlay-text)] transition hover:border-indigo-400/40 hover:bg-indigo-500/[0.1]"
+                              onClick={() => handleSendMessage(item.prompt)}
+                            >
+                              <span className="font-semibold text-indigo-700 dark:text-indigo-400">{item.label}</span>
+                              {item.hint ? (
+                                <span className="mt-px block leading-snug text-[9px] text-[var(--overlay-text-muted)]">
+                                  {item.hint}
+                                </span>
+                              ) : null}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
+            {/* Atajos rápidos */}
             <div className="flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((s, i) => (
+              <p className="w-full px-0.5 text-[8px] font-bold uppercase tracking-wider text-[var(--overlay-text-muted)]">
+                Atajos
+              </p>
+              {SHORTCUT_PROMPTS.map((s, i) => (
                 <button
-                  key={i}
-                  onClick={() => handleSendMessage(s.text)}
+                  key={`${s.label}-${i}`}
+                  type="button"
+                  onClick={() => handleSendMessage(s.prompt)}
                   className="rounded-full border border-indigo-500/20 bg-indigo-500/5 px-2.5 py-1 text-[10px] font-medium text-indigo-600 transition-all hover:bg-indigo-500 hover:text-white dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white"
                 >
                   {s.label}
@@ -713,12 +941,60 @@ export function FleetGuideAgent({
             ) : null}
           </div>
 
-          {/* Sugerencias siempre visibles */}
-          <div className="flex flex-wrap gap-2 px-1 mb-1">
-            {SUGGESTIONS.map((s, i) => (
+          <section className="rounded-2xl border border-indigo-500/18 bg-[var(--overlay-card)]/40 overflow-hidden" aria-labelledby="agent-faq-float-title">
+            <button
+              id="agent-faq-float-title"
+              type="button"
+              onClick={() => setFaqExpanded((v) => !v)}
+              aria-expanded={faqExpanded}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-indigo-500/[0.12]"
+            >
+              <span>
+                <span className="block text-[11px] font-bold tracking-tight text-[var(--overlay-text)]">Preguntas que puedo responder</span>
+                <span className="mt-px block text-[10px] text-[var(--overlay-text-muted)]">
+                  Lista completa — un clic para enviar la pregunta
+                </span>
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-indigo-400 transition-transform duration-300 ${faqExpanded ? "rotate-180" : ""}`}
+                aria-hidden
+              />
+            </button>
+            {faqExpanded ? (
+              <div className="max-h-[min(38vh,15.5rem)] space-y-3 overflow-y-auto border-t border-white/8 px-3 py-3 custom-scrollbar">
+                {FAQ_GROUPS.map((group) => (
+                  <div key={group.title}>
+                    <p className="mb-2 px-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--overlay-text-muted)]">{group.title}</p>
+                    <ul className="flex flex-col gap-1.5">
+                      {group.items.map((item) => (
+                        <li key={item.prompt}>
+                          <button
+                            type="button"
+                            className="w-full rounded-xl border border-white/10 bg-black/[0.04] px-3 py-2.5 text-left text-[11px] text-[var(--overlay-text)] transition hover:border-indigo-400/45 hover:bg-indigo-500/[0.1] dark:bg-white/[0.04]"
+                            onClick={() => handleSendMessage(item.prompt)}
+                          >
+                            <span className="font-semibold text-indigo-300">{item.label}</span>
+                            {item.hint ? (
+                              <span className="mt-0.5 block text-[10px] leading-snug text-[var(--overlay-text-muted)]">{item.hint}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          {/* Atajos rápidos */}
+          <div className="flex flex-wrap gap-2 px-1">
+            <p className="w-full px-1 text-[9px] font-bold uppercase tracking-wider text-[var(--overlay-text-muted)]">Atajos</p>
+            {SHORTCUT_PROMPTS.map((s, i) => (
               <button
-                key={i}
-                onClick={() => handleSendMessage(s.text)}
+                key={`${s.label}-${i}`}
+                type="button"
+                onClick={() => handleSendMessage(s.prompt)}
                 className="rounded-full border border-indigo-500/20 bg-indigo-500/5 px-3 py-1.5 text-[11px] font-medium text-indigo-600 transition-all hover:bg-indigo-500 hover:text-white dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white"
               >
                 {s.label}
