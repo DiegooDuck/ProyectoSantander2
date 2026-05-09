@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Map, { Layer, Source, Marker } from "react-map-gl/mapbox";
+import Map, { Layer, Source, Marker, Popup } from "react-map-gl/mapbox";
 import type { MapRef } from "react-map-gl/mapbox";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { User } from "lucide-react";
 import type { RouteFeatureCollection } from "@/lib/routing";
 import type { GeoFeatureCollection } from "@/lib/data/geojson-builders";
+import { TueBiciLayer } from "./TueBiciLayer";
+import { ParkingLayer } from "./ParkingLayer";
+import { AirQualityLayer } from "./AirQualityLayer";
+import { IncidentsLayer } from "./IncidentsLayer";
 
 const INITIAL_VIEW = {
   longitude: -3.80998,
@@ -26,6 +30,9 @@ export type MapLayerVisibility = {
   buses: boolean;
   bikes: boolean;
   traffic: boolean;
+  parking: boolean;
+  airQuality: boolean;
+  incidents: boolean;
 };
 
 export type CoreMapProps = {
@@ -38,7 +45,7 @@ export type CoreMapProps = {
   bikeLanesGeoJSON: GeoFeatureCollection | null;
   trafficGeoJSON: GeoFeatureCollection | null;
   layers: MapLayerVisibility;
-  onSelectStop?: (lng: number, lat: number, name: string) => void;
+  onSelectStop?: (lng: number, lat: number, name: string, id?: string) => void;
   onSelectBikeStation?: (station: {
     id: string;
     name: string;
@@ -68,6 +75,7 @@ export function CoreMap({
   const mapRef = useRef<MapRef>(null);
   const [mapReady, setMapReady] = useState(false);
   const [hasCenteredOnUser, setHasCenteredOnUser] = useState(false);
+  const [selectedBusPopup, setSelectedBusPopup] = useState<{lng: number, lat: number, name: string, lines?: string} | null>(null);
 
   useEffect(() => {
     if (!mapReady || !userLocation || hasCenteredOnUser) return;
@@ -110,7 +118,10 @@ export function CoreMap({
 
   const onMapClick = useCallback((event: mapboxgl.MapLayerMouseEvent) => {
     const features = event.features;
-    if (!features || features.length === 0) return;
+    if (!features || features.length === 0) {
+      setSelectedBusPopup(null);
+      return;
+    }
 
     const first = features[0];
     const layerId = first.layer?.id;
@@ -134,8 +145,14 @@ export function CoreMap({
 
     if ((layerId === "sr-bus-core" || layerId === "sr-bus-halo") && onSelectStop) {
       const coordinates = ((first.geometry as GeoJSON.Point).coordinates ?? []) as [number, number];
-      const name = first.properties?.["ayto:NombreParada"] || "Parada de autobús";
-      onSelectStop(coordinates[0], coordinates[1], name);
+      const name = first.properties?.name || first.properties?.["ayto:NombreParada"] || "Parada de autobús";
+      const id = first.properties?.id;
+      const lines = first.properties?.lines;
+      
+      setSelectedBusPopup({ lng: coordinates[0], lat: coordinates[1], name, lines });
+      onSelectStop(coordinates[0], coordinates[1], name, id);
+    } else {
+      setSelectedBusPopup(null);
     }
   }, [onSelectBikeStation, onSelectStop]);
 
@@ -358,6 +375,39 @@ export function CoreMap({
             </div>
           </Marker>
         )}
+        {selectedBusPopup && (
+          <Popup
+            longitude={selectedBusPopup.lng}
+            latitude={selectedBusPopup.lat}
+            anchor="bottom"
+            onClose={() => setSelectedBusPopup(null)}
+            closeOnClick={false}
+            className="z-20"
+            offset={15}
+          >
+            <div className="p-2 min-w-[200px] font-sans">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="bg-sky-100 p-1.5 rounded-full">
+                  <span className="text-sky-600 font-bold text-[10px] tracking-wide">BUS</span>
+                </div>
+                <h3 className="font-bold text-gray-900 leading-tight">
+                  {selectedBusPopup.name}
+                </h3>
+              </div>
+              {selectedBusPopup.lines && (
+                <div className="flex items-center justify-between bg-gray-50 rounded-lg p-2 border border-gray-100">
+                  <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Líneas</span>
+                  <span className="text-xs font-bold text-gray-900">{selectedBusPopup.lines}</span>
+                </div>
+              )}
+            </div>
+          </Popup>
+        )}
+
+        <TueBiciLayer visible={layers.bikes} />
+        <ParkingLayer visible={layers.parking} />
+        <AirQualityLayer visible={layers.airQuality} />
+        <IncidentsLayer visible={layers.incidents} />
       </Map>
     </div>
   );

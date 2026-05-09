@@ -118,6 +118,7 @@ function MapExperience() {
   const [userLocation, setUserLocation] = useState<{ lng: number; lat: number } | null>(null);
   const [sustainKey, setSustainKey] = useState(0); // bump to refresh dashboard
   const [selectedBikeStation, setSelectedBikeStation] = useState<BikeStationLite | null>(null);
+  const [selectedBusStopForAgent, setSelectedBusStopForAgent] = useState<{id: string, name: string} | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [activeRide, setActiveRide] = useState<{
     fromStationId: string;
@@ -129,7 +130,13 @@ function MapExperience() {
     buses: true,
     bikes: true,
     traffic: true,
+    parking: true,
+    airQuality: true,
+    incidents: true,
   });
+  
+  const [incidentsData, setIncidentsData] = useState<any>(null);
+  const [airQualityData, setAirQualityData] = useState<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +165,15 @@ function MapExperience() {
         if (!cancelled)
           setLoadError(e instanceof Error ? e.message : "Error de datos");
       });
+
+    // Fetch dynamic context data for routing
+    fetch('/api/santander/incidents').then(r => r.json()).then(d => {
+      if (!cancelled) setIncidentsData(d);
+    }).catch(console.error);
+
+    fetch('/api/santander/air-quality').then(r => r.json()).then(d => {
+      if (!cancelled) setAirQualityData(d);
+    }).catch(console.error);
 
     return () => {
       cancelled = true;
@@ -216,7 +232,11 @@ function MapExperience() {
 
 
 
-  const handleStopSelect = (lng: number, lat: number, name: string) => {
+  const handleStopSelect = (lng: number, lat: number, name: string, id?: string) => {
+    if (id) {
+      setSelectedBusStopForAgent({ id, name });
+    }
+
     const newDest: Destination = {
       name: name,
       coordinates: [lng, lat],
@@ -256,6 +276,35 @@ function MapExperience() {
           const data = await res.json();
           if (data.routes && data.routes.length > 0) {
             const route = data.routes[0];
+            
+            // Calculate obstacle penalties
+            let pollutionExposure = 0;
+            let incidentHits = 0;
+            
+            if (route.geometry?.coordinates) {
+              const coords: [number, number][] = route.geometry.coordinates;
+              
+              // Simplistic intersection checking for each coordinate point
+              coords.forEach((coord) => {
+                 if (airQualityData?.features) {
+                    airQualityData.features.forEach((f: any) => {
+                       const dist = haversineMeters({lng: coord[0], lat: coord[1]}, {lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1]});
+                       if (dist < 200) { // within 200 meters of sensor
+                          pollutionExposure += ((f.properties?.aqi || 0) / 100); 
+                       }
+                    });
+                 }
+                 if (incidentsData?.features) {
+                    incidentsData.features.forEach((f: any) => {
+                       const dist = haversineMeters({lng: coord[0], lat: coord[1]}, {lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1]});
+                       if (dist < 100) { // Route passes very close to an incident
+                          incidentHits += 1;
+                       }
+                    });
+                 }
+              });
+            }
+
             const candidate: RouteCandidate = {
               id: `api-${m.ourMode}-${Date.now()}`,
               label: m.label,
@@ -268,8 +317,10 @@ function MapExperience() {
               ],
               metrics: {
                 estimatedCo2Grams: m.ourMode === "bus" ? route.distance * 0.12 : 0,
-                safetyIndex: m.ourMode === "walking" ? 0.9 : (m.ourMode === "cycling" ? 0.8 : 0.6),
-                trafficExposureIndex: m.ourMode === "bus" ? 0.8 : (m.ourMode === "cycling" ? 0.3 : 0.1),
+                safetyIndex: (m.ourMode === "walking" ? 0.9 : (m.ourMode === "cycling" ? 0.8 : 0.6)) - (incidentHits > 0 ? 0.3 : 0),
+                trafficExposureIndex: (m.ourMode === "bus" ? 0.8 : (m.ourMode === "cycling" ? 0.3 : 0.1)) + Math.min(pollutionExposure * 0.05, 0.5),
+                incidentHits,
+                pollutionExposure,
               },
               geometry: route.geometry,
             };
@@ -629,6 +680,7 @@ function MapExperience() {
                     onUpdateProfile={setProfile}
                     isOpen={isAgentOpen}
                     onToggle={setIsAgentOpen}
+                    selectedBusStop={selectedBusStopForAgent}
                   />
 
                   {activeScore ? (
@@ -669,6 +721,7 @@ function MapExperience() {
          hideFab={isPanelExpanded}
          isOpen={isAgentOpen}
          onToggle={setIsAgentOpen}
+         selectedBusStop={selectedBusStopForAgent}
        />
     </div>
   );

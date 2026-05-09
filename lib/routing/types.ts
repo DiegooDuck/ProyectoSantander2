@@ -21,6 +21,10 @@ export type RouteMetrics = {
   safetyIndex: number;
   /** 0–1, mayor = más exposición a tráfico denso / conflictos. */
   trafficExposureIndex: number;
+  /** Número de incidencias/obras que cruza la ruta. */
+  incidentHits?: number;
+  /** Nivel de exposición a polución acumulado a lo largo de la ruta. */
+  pollutionExposure?: number;
 };
 
 export type LineStringGeometry = {

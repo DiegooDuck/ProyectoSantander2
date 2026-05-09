@@ -13,15 +13,15 @@ export function LayerToggleBar({ layers, onChange }: LayerToggleBarProps) {
   };
 
   const selectAll = () => {
-    onChange({ buses: true, bikes: true, traffic: true });
+    onChange({ buses: true, bikes: true, traffic: true, parking: true, airQuality: true, incidents: true });
   };
 
   const deselectAll = () => {
-    onChange({ buses: false, bikes: false, traffic: false });
+    onChange({ buses: false, bikes: false, traffic: false, parking: false, airQuality: false, incidents: false });
   };
 
-  const allSelected = layers.buses && layers.bikes && layers.traffic;
-  const noneSelected = !layers.buses && !layers.bikes && !layers.traffic;
+  const allSelected = layers.buses && layers.bikes && layers.traffic && layers.parking && layers.airQuality && layers.incidents;
+  const noneSelected = !layers.buses && !layers.bikes && !layers.traffic && !layers.parking && !layers.airQuality && !layers.incidents;
 
   const pill = (
     key: keyof MapLayerVisibility,
@@ -71,7 +71,10 @@ export function LayerToggleBar({ layers, onChange }: LayerToggleBarProps) {
       <div className="flex w-full flex-wrap gap-2">
         {pill("buses", "Bus", "🚌")}
         {pill("bikes", "Bici", "🚲")}
+        {pill("parking", "Parking", "🅿️")}
         {pill("traffic", "Tráfico", "🟠")}
+        {pill("airQuality", "Aire", "💨")}
+        {pill("incidents", "Avisos", "🚧")}
       </div>
       <div className="flex w-full gap-2">
         {bulkButton("Seleccionar todo", selectAll, allSelected)}

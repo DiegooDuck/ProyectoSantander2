@@ -26,17 +26,19 @@ function totalDuration(candidate: RouteCandidate): number {
   return candidate.legs.reduce((s, l) => s + l.durationMinutes, 0);
 }
 
-/** Coste de sostenibilidad: emisiones altas + baja movilidad activa. */
+/** Coste de sostenibilidad: emisiones altas + baja movilidad activa + alta exposición a contaminación. */
 function sustainabilityRaw(candidate: RouteCandidate): number {
   const co2 = candidate.metrics.estimatedCo2Grams;
   const passiveShare = 1 - activeMobilityShareKm(candidate);
-  return co2 * 0.55 + passiveShare * 400;
+  const pollutionPenalty = (candidate.metrics.pollutionExposure || 0) * 150; // Penalti alto por cruzar polución
+  return co2 * 0.55 + passiveShare * 400 + pollutionPenalty;
 }
 
-/** Coste de “calma”: baja seguridad percibida + alta exposición al tráfico. */
+/** Coste de “calma”: baja seguridad percibida + alta exposición al tráfico + cruce con incidencias/obras. */
 function calmRaw(candidate: RouteCandidate): number {
-  const { safetyIndex, trafficExposureIndex } = candidate.metrics;
-  return (1 - safetyIndex) * 0.55 + trafficExposureIndex * 0.45;
+  const { safetyIndex, trafficExposureIndex, incidentHits = 0 } = candidate.metrics;
+  const incidentPenalty = incidentHits * 500; // Penalti gigantesco por cruzarse con una calle cortada/obra
+  return (1 - safetyIndex) * 0.55 + trafficExposureIndex * 0.45 + incidentPenalty;
 }
 
 export function scoreRoute(
